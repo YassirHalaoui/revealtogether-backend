@@ -1,4 +1,5 @@
-FROM eclipse-temurin:21-jdk-alpine AS build
+# Use non-Alpine image (glibc instead of musl) to fix native SSL library crashes
+FROM eclipse-temurin:21-jdk AS build
 WORKDIR /app
 COPY .mvn/ .mvn/
 COPY mvnw pom.xml ./
@@ -6,8 +7,8 @@ RUN ./mvnw dependency:go-offline -B
 COPY src ./src
 RUN ./mvnw package -DskipTests -B
 
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:21-jre
 WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar
-EXPOSE 8181
+EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]
