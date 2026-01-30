@@ -1,0 +1,62 @@
+spring:
+  application:
+    name: revealtogether
+  threads:
+    virtual:
+      enabled: true
+
+  # Redis Configuration (Upstash)
+  data:
+    redis:
+      url: ${UPSTASH_REDIS_URL:redis://localhost:6379}
+      timeout: 5000ms
+
+  # Jackson Configuration
+  jackson:
+    default-property-inclusion: non_null
+
+# Server Configuration
+server:
+  port: ${PORT:8181}
+
+# Application Configuration
+app:
+  base-url: ${BASE_URL:http://localhost:3000}
+  cors:
+    allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000}
+  firebase:
+    credentials: ${FIREBASE_CREDENTIALS:}
+    # For localhost: load from resources folder (leave empty for prod)
+    credentials-file: ${FIREBASE_CREDENTIALS_FILE:revealtogether-test-firebase-adminsdk-fbsvc-11c2401156.json}
+  redis:
+    ttl:
+      session-hours: 24
+      post-reveal-hours: 1
+  broadcast:
+    interval-ms: 200
+  chat:
+    max-messages: 500
+    max-length: 280
+  name:
+    max-length: 50
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+# Logging Configuration
+logging:
+  level:
+    root: ${LOG_LEVEL:INFO}
+    revealtogether: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
