@@ -33,6 +33,11 @@ public class FirebaseConfig {
 
     @PostConstruct
     public void initialize() {
+        // Debug: Log what env vars we're seeing
+        log.info("FIREBASE_CREDENTIALS env var length: {}",
+                 firebaseCredentials != null ? firebaseCredentials.length() : "null");
+        log.info("FIREBASE_CREDENTIALS_FILE: {}", firebaseCredentialsFile);
+
         try {
             GoogleCredentials credentials = loadCredentials();
             if (credentials == null) {
