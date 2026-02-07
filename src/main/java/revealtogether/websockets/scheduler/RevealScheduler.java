@@ -16,6 +16,7 @@ import revealtogether.websockets.service.SessionService;
 import revealtogether.websockets.service.VoteService;
 
 import java.time.Instant;
+import java.util.Collections;
 import java.util.Set;
 
 @Component
@@ -29,6 +30,11 @@ public class RevealScheduler {
     private final ChatService chatService;
     private final FirebaseService firebaseService;
     private final SimpMessagingTemplate messagingTemplate;
+
+    // Cache active sessions to avoid hitting Redis every second when idle
+    private Set<String> cachedActiveSessions = Collections.emptySet();
+    private long lastFullCheckTime = 0;
+    private static final long FULL_CHECK_INTERVAL_MS = 30_000; // Only hit Redis every 30s when idle
 
     public RevealScheduler(
             RedisRepository redisRepository,
@@ -48,14 +54,26 @@ public class RevealScheduler {
 
     @Scheduled(fixedRate = 1000) // Check every second
     public void checkReveals() {
-        Set<String> activeSessions = redisRepository.getActiveSessions();
-        Instant now = Instant.now();
+        long now = System.currentTimeMillis();
 
-        for (String sessionId : activeSessions) {
+        // Only fetch active sessions from Redis every 30 seconds when cache is empty (idle)
+        // When there ARE active sessions, check every cycle (1s)
+        if (!cachedActiveSessions.isEmpty() || now - lastFullCheckTime >= FULL_CHECK_INTERVAL_MS) {
+            cachedActiveSessions = redisRepository.getActiveSessions();
+            lastFullCheckTime = now;
+        }
+
+        if (cachedActiveSessions.isEmpty()) {
+            return;
+        }
+
+        Instant instant = Instant.now();
+
+        for (String sessionId : cachedActiveSessions) {
             sessionService.getSession(sessionId).ifPresent(session -> {
                 // Activate waiting sessions when it's time
                 if (session.status() == SessionStatus.WAITING &&
-                        now.isAfter(session.revealTime().minusSeconds(300))) {
+                        instant.isAfter(session.revealTime().minusSeconds(300))) {
                     // Activate 5 minutes before reveal
                     sessionService.activateSession(sessionId);
                     log.info("Session {} activated", sessionId);
@@ -63,8 +81,10 @@ public class RevealScheduler {
 
                 // End sessions when reveal time passes
                 if (session.status() != SessionStatus.ENDED &&
-                        now.isAfter(session.revealTime())) {
+                        instant.isAfter(session.revealTime())) {
                     triggerReveal(session);
+                    // Refresh cache after ending a session
+                    cachedActiveSessions = redisRepository.getActiveSessions();
                 }
             });
         }
