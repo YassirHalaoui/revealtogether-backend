@@ -7,9 +7,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import revealtogether.websockets.domain.VoteCount;
 import revealtogether.websockets.repository.RedisRepository;
-
-import java.util.Collections;
-import java.util.Set;
+import revealtogether.websockets.service.ActiveSessionRegistry;
 
 @Component
 public class VoteBroadcastScheduler {
@@ -18,36 +16,26 @@ public class VoteBroadcastScheduler {
 
     private final RedisRepository redisRepository;
     private final SimpMessagingTemplate messagingTemplate;
-
-    // Cache active sessions — only refresh from Redis every 30s when idle
-    private Set<String> cachedActiveSessions = Collections.emptySet();
-    private long lastFullCheckTime = 0;
-    private static final long FULL_CHECK_INTERVAL_MS = 30_000;
+    private final ActiveSessionRegistry sessionRegistry;
 
     public VoteBroadcastScheduler(
             RedisRepository redisRepository,
-            SimpMessagingTemplate messagingTemplate
+            SimpMessagingTemplate messagingTemplate,
+            ActiveSessionRegistry sessionRegistry
     ) {
         this.redisRepository = redisRepository;
         this.messagingTemplate = messagingTemplate;
+        this.sessionRegistry = sessionRegistry;
     }
 
-    @Scheduled(fixedRateString = "${app.broadcast.interval-ms:2000}")
+    @Scheduled(fixedRateString = "${app.broadcast.interval-ms:500}")
     public void broadcastVotes() {
-        long now = System.currentTimeMillis();
-
-        // Only fetch active sessions from Redis every 30s when cache is empty (idle)
-        // When there ARE active sessions, refresh every cycle to pick up new ones
-        if (!cachedActiveSessions.isEmpty() || now - lastFullCheckTime >= FULL_CHECK_INTERVAL_MS) {
-            cachedActiveSessions = redisRepository.getActiveSessions();
-            lastFullCheckTime = now;
-        }
-
-        if (cachedActiveSessions.isEmpty()) {
+        // Zero Redis cost when no active sessions
+        if (!sessionRegistry.hasActiveSessions()) {
             return;
         }
 
-        for (String sessionId : cachedActiveSessions) {
+        for (String sessionId : sessionRegistry.getActiveSessions()) {
             if (redisRepository.isDirtyAndClear(sessionId)) {
                 VoteCount votes = redisRepository.getVotes(sessionId);
                 messagingTemplate.convertAndSend("/topic/votes/" + sessionId, votes);

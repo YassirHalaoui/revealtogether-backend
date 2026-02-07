@@ -12,7 +12,7 @@ RevealTogether is a virtual gender reveal platform enabling synchronized real-ti
 |-------|------------|---------|
 | Runtime | Java 21 + Spring Boot 4.x | Virtual threads enabled |
 | Real-time | STOMP over WebSocket + SockJS | Bidirectional comms |
-| Live Cache | Upstash Redis | Free tier (10K cmd/day) |
+| Live Cache | Upstash Redis | Pay-as-you-go ($0.2/100K cmds) |
 | Persistence | Firebase Firestore | For permanent storage |
 | Hosting | Railway | $5/month |
 
@@ -45,6 +45,7 @@ revealtogether.websockets/
 ├── repository/       # Redis operations
 │   └── RedisRepository.java
 ├── service/          # Business logic
+│   ├── ActiveSessionRegistry.java  # In-memory session cache (zero Redis when idle)
 │   ├── SessionService.java
 │   ├── VoteService.java
 │   ├── ChatService.java
@@ -55,7 +56,7 @@ revealtogether.websockets/
 │   ├── VoteController.java
 │   └── ChatController.java
 ├── scheduler/        # Scheduled tasks
-│   ├── VoteBroadcastScheduler.java  # 200ms batched broadcasts
+│   ├── VoteBroadcastScheduler.java  # 500ms batched broadcasts (dirty flag)
 │   └── RevealScheduler.java         # Auto-reveal trigger
 └── exception/        # Error handling
     └── GlobalExceptionHandler.java
@@ -67,7 +68,7 @@ revealtogether.websockets/
 
 | Topic | Direction | Purpose |
 |-------|-----------|---------|
-| `/topic/votes/{sessionId}` | Server → Client | Batched vote updates (200ms) |
+| `/topic/votes/{sessionId}` | Server → Client | Batched vote updates (500ms) |
 | `/topic/chat/{sessionId}` | Server → Client | Chat messages broadcast |
 | `/app/vote/{sessionId}` | Client → Server | Cast vote (boy/girl) |
 | `/app/chat/{sessionId}` | Client → Server | Send chat message |
@@ -119,11 +120,11 @@ revealtogether.websockets/
 ## Environment Variables
 
 ```
-UPSTASH_REDIS_URL=redis://default:xxx@xxx.upstash.io:6379
+UPSTASH_REDIS_URL=rediss://default:xxx@xxx.upstash.io:6379
 FIREBASE_CREDENTIALS=base64-encoded-service-account-json
 PORT=8080
 BASE_URL=https://revealtogether.com
-ALLOWED_ORIGINS=https://revealtogether.com
+ALLOWED_ORIGINS=https://www.revealtogether.com,https://revealtogether.com
 LOG_LEVEL=INFO
 ```
 
@@ -131,12 +132,15 @@ LOG_LEVEL=INFO
 
 ## Key Implementation Notes
 
-1. **Vote Batching**: Broadcast every 200ms using dirty flag pattern
+1. **Vote Batching**: Broadcast every 500ms using dirty flag pattern
 2. **Duplicate Prevention**: Redis SET `voters:{sessionId}` tracks who voted
 3. **Chat Capping**: Keep only last 500 messages (LTRIM after LPUSH)
 4. **Graceful Shutdown**: Flush pending data to Firebase on shutdown
 5. **SockJS Fallback**: Required for older browsers/corporate proxies
 6. **Firebase Init**: Eager initialization on startup (avoid cold start)
+7. **ActiveSessionRegistry**: In-memory `ConcurrentHashMap` of active session IDs. Schedulers check this instead of Redis — **zero Redis commands when idle**. Reconciles with Redis every 60s as a safety net for restarts. Sessions are registered on creation, unregistered on end.
+8. **Redis Protocol**: Must use `rediss://` (double s) for Upstash TLS. Alpine Docker images crash with native SSL — use Debian-based `eclipse-temurin:21-jre`.
+9. **CORS**: Uses `setAllowedOriginPatterns` (not `setAllowedOrigins`) for SockJS compatibility. Origins trimmed from comma-separated env var.
 
 ---
 
@@ -210,4 +214,4 @@ LOG_LEVEL=INFO
 
 ---
 
-*Last updated: January 2026*
+*Last updated: February 2026*

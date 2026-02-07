@@ -2,7 +2,7 @@
 
 ## Backend Architecture Document
 
-**Version 1.0 — January 2026**
+**Version 1.1 — February 2026**
 
 ---
 
@@ -16,9 +16,9 @@ RevealTogether is a virtual gender reveal platform enabling synchronized real-ti
 
 | Layer | Technology | Justification |
 |-------|------------|---------------|
-| Runtime | Java 21 + Spring Boot 3.x | Developer expertise, virtual threads, production-proven |
+| Runtime | Java 21 + Spring Boot 4.x | Developer expertise, virtual threads, production-proven |
 | Real-time | STOMP over WebSocket + SockJS | Bidirectional comms, handles chat + votes, fallback support |
-| Live Cache | Upstash Redis (Free Tier) | Fast pub/sub, ephemeral session data, 10K cmd/day free |
+| Live Cache | Upstash Redis (Pay-as-you-go) | Fast pub/sub, ephemeral session data, $0.2/100K commands |
 | Persistence | Firebase Firestore | Existing infrastructure, permanent storage |
 | Hosting | Railway ($5/month) | Already configured, sufficient for MVP scale |
 
@@ -80,7 +80,7 @@ RevealTogether is a virtual gender reveal platform enabling synchronized real-ti
 
 | Topic | Direction | Purpose |
 |-------|-----------|---------|
-| `/topic/votes/{sessionId}` | Server → Client | Batched vote count updates (every 200ms) |
+| `/topic/votes/{sessionId}` | Server → Client | Batched vote count updates (every 500ms) |
 | `/topic/chat/{sessionId}` | Server → Client | Chat messages broadcast |
 | `/app/vote/{sessionId}` | Client → Server | Cast vote (boy/girl) |
 | `/app/chat/{sessionId}` | Client → Server | Send chat message |
@@ -149,7 +149,7 @@ SEND /app/vote/{sessionId} { "option": "boy", "visitorId": "uuid" }
 → Check Redis SET voters:{sessionId} for duplicate
 → If new: Redis HINCRBY votes:{sessionId} boy 1
 → Set dirty:{sessionId} = 1
-→ Batched broadcast picks it up within 200ms
+→ Batched broadcast picks it up within 500ms
 ```
 
 ### 4. Guest Sends Chat
@@ -185,20 +185,23 @@ GET /api/reveals/{sessionId}
 
 ## Batched Broadcast Strategy
 
-To handle high-frequency voting (up to 1000 concurrent users) without overwhelming clients, votes are batched server-side and broadcast every 200ms. This is imperceptible to users but prevents UI freezing.
+To handle high-frequency voting (up to 1000 concurrent users) without overwhelming clients, votes are batched server-side and broadcast every 500ms. This is imperceptible to users but prevents UI freezing.
+
+**ActiveSessionRegistry** (in-memory `ConcurrentHashMap`) eliminates all Redis polling when idle:
+- Sessions are registered on creation, unregistered on end
+- Schedulers check the local registry (zero Redis cost when no active sessions)
+- Safety net: reconciles with Redis every 60s (handles server restarts)
 
 ```java
-@Scheduled(fixedRate = 200)
+// Zero Redis commands when idle — registry is checked in-memory
+@Scheduled(fixedRate = 500)
 public void broadcastVotes() {
-    Set<String> activeSessionIds = getActiveSessions();
-    
-    for (String sessionId : activeSessionIds) {
-        String dirty = redis.opsForValue().get("dirty:" + sessionId);
-        if ("1".equals(dirty)) {
-            Map<Object, Object> votes = redis.opsForHash()
-                .entries("votes:" + sessionId);
-            messaging.convertAndSend("/topic/votes/" + sessionId, votes);
-            redis.delete("dirty:" + sessionId);
+    if (!sessionRegistry.hasActiveSessions()) return; // FREE check
+
+    for (String sessionId : sessionRegistry.getActiveSessions()) {
+        if (redisRepository.isDirtyAndClear(sessionId)) {
+            VoteCount votes = redisRepository.getVotes(sessionId);
+            messagingTemplate.convertAndSend("/topic/votes/" + sessionId, votes);
         }
     }
 }
@@ -212,7 +215,7 @@ public void broadcastVotes() {
 |----------|----------|
 | User votes twice | Redis SADD `voters:{sessionId}` → reject if visitorId exists |
 | WebSocket disconnects | SockJS auto-reconnects; client fetches current state via REST |
-| 1000 votes in 1 second | Batching (200ms) smooths broadcast; Redis handles load |
+| 1000 votes in 1 second | Batching (500ms) smooths broadcast; Redis handles load |
 | Redis goes down | Log error, degrade gracefully, alert owner |
 | Reveal owner closes browser | Reveal continues; scheduled job ends it at revealTime |
 | Guest joins after reveal ended | Check session status → return results from Firebase |
@@ -239,13 +242,13 @@ public void broadcastVotes() {
 
 ## Upstash Usage Optimization
 
-Upstash free tier allows 10K commands/day. A busy reveal can consume significant commands. Optimizations to stay within limits:
+Upstash pay-as-you-go: $0.2 per 100K commands. Optimizations to minimize cost:
 
-- **Cache vote counts locally:** Refresh from Redis every 1 second, not every broadcast cycle
-- **Batch chat writes:** Buffer 5 messages or 500ms, then LPUSH all at once
-- **Use dirty flag:** Only read votes when changed, not on every cycle
-- **Target:** Less than 5K commands per active reveal session
-- **Fallback:** If approaching limits, upgrade to Upstash Pro ($10/month, no daily limit)
+- **ActiveSessionRegistry:** In-memory tracking of active sessions. Schedulers skip Redis entirely when idle — **zero commands when no events are live**
+- **Dirty flag pattern:** Only read vote counts when they've actually changed (`isDirtyAndClear`)
+- **Reconciliation:** Registry syncs with Redis every 60s as safety net (1,440 commands/day idle)
+- **Estimated cost per event:** ~9K commands for a 30-min reveal = ~$0.02
+- **Idle cost:** ~$0.003/day (reconciliation only)
 
 ---
 
@@ -276,10 +279,10 @@ Upstash free tier allows 10K commands/day. A busy reveal can consume significant
 ## Environment Variables (Railway)
 
 ```
-UPSTASH_REDIS_URL=redis://default:xxx@xxx.upstash.io:6379
+UPSTASH_REDIS_URL=rediss://default:xxx@xxx.upstash.io:6379  # Note: rediss:// (double s) for TLS
 FIREBASE_CREDENTIALS=base64-encoded-service-account-json
 PORT=8080
-ALLOWED_ORIGINS=https://revealtogether.com
+ALLOWED_ORIGINS=https://www.revealtogether.com,https://revealtogether.com
 LOG_LEVEL=INFO
 ```
 
@@ -302,9 +305,9 @@ LOG_LEVEL=INFO
 | Service | Tier | Monthly Cost |
 |---------|------|--------------|
 | Railway (Spring Boot) | Starter | $5 (includes compute) |
-| Upstash Redis | Free | $0 |
+| Upstash Redis | Pay-as-you-go | ~$0.10 (estimated, idle + few events) |
 | Firebase Firestore | Spark (Free) | $0 |
-| **Total** | | **$5/month** |
+| **Total** | | **~$5.10/month** |
 
 ---
 
@@ -314,7 +317,7 @@ Current architecture supports single Spring Boot instance. If RevealTogether gro
 
 - **Multiple instances:** Add Redis pub/sub for cross-instance WebSocket messaging
 - **Sticky sessions:** Simpler alternative — route same session to same instance
-- **Upstash limits:** Upgrade to Pro tier ($10/mo) for unlimited commands
+- **Upstash scaling:** Pay-as-you-go scales automatically; consider Upstash Pro for guaranteed throughput
 - **Global latency:** Consider edge deployment (Fly.io, Railway regions) for international guests
 
 ---
@@ -325,7 +328,11 @@ Current architecture supports single Spring Boot instance. If RevealTogether gro
 - **SockJS fallback:** Required for older browsers and corporate proxies that block WebSocket
 - **Chat capping:** Keep only last 500 messages in Redis (LTRIM after LPUSH)
 - **Graceful shutdown:** On app shutdown, flush any pending data to Firebase before exit
+- **ActiveSessionRegistry:** `ConcurrentHashMap`-backed in-memory set of active session IDs. Registered on session creation, unregistered on session end. Reconciles with Redis every 60s. Schedulers check this (free) instead of hitting Redis.
+- **Docker image:** Must use Debian-based `eclipse-temurin:21-jre` (NOT Alpine). Alpine's musl libc crashes with gRPC/Netty native SSL libraries used by Firebase.
+- **Redis TLS:** Upstash requires `rediss://` (double s) protocol. Single `redis://` will cause JVM SIGSEGV crashes.
+- **CORS config:** Uses `setAllowedOriginPatterns` (not `setAllowedOrigins`) for SockJS compatibility with credentials. Origins are trimmed from comma-separated `ALLOWED_ORIGINS` env var.
 
 ---
 
-*Document prepared for RevealTogether backend implementation. Ready for development.*
+*Document updated February 2026. Production-deployed on Railway.*

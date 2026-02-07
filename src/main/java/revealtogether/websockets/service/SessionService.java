@@ -21,9 +21,11 @@ public class SessionService {
     private static final int RECENT_VOTES_LIMIT = 50;
 
     private final RedisRepository redisRepository;
+    private final ActiveSessionRegistry sessionRegistry;
 
-    public SessionService(RedisRepository redisRepository) {
+    public SessionService(RedisRepository redisRepository, ActiveSessionRegistry sessionRegistry) {
         this.redisRepository = redisRepository;
+        this.sessionRegistry = sessionRegistry;
     }
 
     public Session createSession(SessionCreateRequest request) {
@@ -39,6 +41,7 @@ public class SessionService {
 
         redisRepository.saveSession(session);
         redisRepository.initializeVotes(sessionId);
+        sessionRegistry.register(sessionId);
 
         log.info("Created session: {} with reveal time: {}", sessionId, request.revealTime());
         return session;
@@ -99,5 +102,6 @@ public class SessionService {
         updateStatus(sessionId, SessionStatus.ENDED);
         redisRepository.removeActiveSession(sessionId);
         redisRepository.setPostRevealTtl(sessionId);
+        sessionRegistry.unregister(sessionId);
     }
 }

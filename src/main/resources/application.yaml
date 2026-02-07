@@ -33,7 +33,7 @@ app:
       session-hours: 24
       post-reveal-hours: 1
   broadcast:
-    interval-ms: 2000
+    interval-ms: 500
   chat:
     max-messages: 500
     max-length: 280
