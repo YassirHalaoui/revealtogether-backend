@@ -18,10 +18,12 @@ public class VoteService {
 
     private final RedisRepository redisRepository;
     private final SessionService sessionService;
+    private final FirebaseService firebaseService;
 
-    public VoteService(RedisRepository redisRepository, SessionService sessionService) {
+    public VoteService(RedisRepository redisRepository, SessionService sessionService, FirebaseService firebaseService) {
         this.redisRepository = redisRepository;
         this.sessionService = sessionService;
+        this.firebaseService = firebaseService;
     }
 
     public VoteResponse castVote(String sessionId, VoteRequest request) {
@@ -59,6 +61,9 @@ public class VoteService {
             // Save individual vote record for display
             VoteRecord record = VoteRecord.create(request.visitorId(), request.name(), option);
             redisRepository.saveVoteRecord(sessionId, record);
+
+            // Persist to Firestore subcollection (fire-and-forget)
+            firebaseService.saveVote(sessionId, request.visitorId(), request.name(), option.getValue());
 
             log.info("Vote recorded: session={}, visitor={}, option={}, name={}",
                     sessionId, request.visitorId(), option, request.name());

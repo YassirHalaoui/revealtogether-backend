@@ -14,6 +14,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 
 @Service
@@ -99,6 +100,35 @@ public class FirebaseService {
             log.error("Failed to save reveal results to Firebase", e);
             Thread.currentThread().interrupt();
         }
+    }
+
+    /**
+     * Writes an individual vote to reveals/{sessionId}/votes/{voteId}.
+     * Fire-and-forget: does not block the vote response.
+     */
+    public void saveVote(String sessionId, String visitorId, String name, String option) {
+        if (firestore == null) {
+            log.warn("Firebase not configured. Skipping vote save.");
+            return;
+        }
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("visitorId", visitorId);
+        data.put("name", name);
+        data.put("option", option);
+        data.put("timestamp", Instant.now().toString());
+
+        String voteId = UUID.randomUUID().toString();
+
+        firestore.collection(REVEALS_COLLECTION)
+                .document(sessionId)
+                .collection("votes")
+                .document(voteId)
+                .set(data)
+                .addListener(
+                        () -> log.debug("Vote saved to Firestore: session={}, visitor={}", sessionId, visitorId),
+                        Runnable::run
+                );
     }
 
     public Map<String, Object> getRevealData(String sessionId) {
