@@ -115,7 +115,7 @@ public class FirebaseService {
         Map<String, Object> data = new HashMap<>();
         data.put("visitorId", visitorId);
         data.put("name", name);
-        data.put("option", option);
+        data.put("vote", option);
         data.put("timestamp", Instant.now().toString());
 
         String voteId = UUID.randomUUID().toString();
