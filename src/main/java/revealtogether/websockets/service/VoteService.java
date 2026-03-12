@@ -62,8 +62,9 @@ public class VoteService {
             VoteRecord record = VoteRecord.create(request.visitorId(), request.name(), option);
             redisRepository.saveVoteRecord(sessionId, record);
 
-            // Persist to Firestore subcollection (fire-and-forget)
+            // Persist to Firestore subcollection and increment running count (fire-and-forget)
             firebaseService.saveVote(sessionId, request.visitorId(), request.name(), option.getValue());
+            firebaseService.incrementVoteCount(sessionId, option.getValue());
 
             log.info("Vote recorded: session={}, visitor={}, option={}, name={}",
                     sessionId, request.visitorId(), option, request.name());

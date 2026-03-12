@@ -1,5 +1,6 @@
 package revealtogether.websockets.service;
 
+import com.google.cloud.firestore.FieldValue;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.SetOptions;
 import jakarta.annotation.Nullable;
@@ -127,6 +128,28 @@ public class FirebaseService {
                 .set(data)
                 .addListener(
                         () -> log.debug("Vote saved to Firestore: session={}, visitor={}", sessionId, visitorId),
+                        Runnable::run
+                );
+    }
+
+    /**
+     * Atomically increments the vote count on the reveal document.
+     * Fire-and-forget. Ensures Firestore always has current counts even if
+     * Redis expires before the reveal ends.
+     */
+    public void incrementVoteCount(String sessionId, String option) {
+        if (firestore == null) {
+            log.warn("Firebase not configured. Skipping vote count increment.");
+            return;
+        }
+
+        String field = "votes." + option;
+
+        firestore.collection(REVEALS_COLLECTION)
+                .document(sessionId)
+                .update(field, FieldValue.increment(1))
+                .addListener(
+                        () -> log.debug("Vote count incremented in Firestore: session={}, option={}", sessionId, option),
                         Runnable::run
                 );
     }
