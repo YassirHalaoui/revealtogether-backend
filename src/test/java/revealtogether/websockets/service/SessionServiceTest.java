@@ -47,7 +47,7 @@ class SessionServiceTest extends BaseIntegrationTest {
                     "owner-123",
                     "boy",
                     Instant.now().plusSeconds(3600),
-            null, null);
+            null, null, null, null);
 
             // When
             Session session = sessionService.createSession(request);
@@ -68,7 +68,7 @@ class SessionServiceTest extends BaseIntegrationTest {
                     "owner-123",
                     "girl",
                     Instant.now().plusSeconds(3600),
-            null, null);
+            null, null, null, null);
 
             // When
             Session session = sessionService.createSession(request);
@@ -87,7 +87,7 @@ class SessionServiceTest extends BaseIntegrationTest {
                     "owner-123",
                     "boy",
                     Instant.now().plusSeconds(3600),
-            null, null);
+            null, null, null, null);
 
             // When
             Session session = sessionService.createSession(request);
@@ -105,7 +105,7 @@ class SessionServiceTest extends BaseIntegrationTest {
                     "owner-123",
                     "boy",
                     Instant.now().plusSeconds(3600),
-            null, null);
+            null, null, null, null);
 
             // When
             Session session1 = sessionService.createSession(request);
@@ -128,7 +128,7 @@ class SessionServiceTest extends BaseIntegrationTest {
                     "owner-123",
                     "boy",
                     Instant.now().plusSeconds(3600),
-            null, null);
+            null, null, null, null);
             Session session = sessionService.createSession(request);
 
             // When
@@ -148,7 +148,7 @@ class SessionServiceTest extends BaseIntegrationTest {
                     "owner-123",
                     "boy",
                     Instant.now().plusSeconds(3600),
-            null, null);
+            null, null, null, null);
             Session session = sessionService.createSession(request);
             sessionService.activateSession(session.sessionId());
 
@@ -169,7 +169,7 @@ class SessionServiceTest extends BaseIntegrationTest {
                     "owner-123",
                     "boy",
                     Instant.now().plusSeconds(3600),
-            null, null);
+            null, null, null, null);
             Session session = sessionService.createSession(request);
             sessionService.activateSession(session.sessionId());
 
@@ -194,7 +194,7 @@ class SessionServiceTest extends BaseIntegrationTest {
                     "owner-123",
                     "boy",
                     Instant.now().plusSeconds(3600),
-            null, null);
+            null, null, null, null);
             Session session = sessionService.createSession(request);
             sessionService.activateSession(session.sessionId());
 
@@ -224,7 +224,7 @@ class SessionServiceTest extends BaseIntegrationTest {
                     "owner-123",
                     "boy",
                     Instant.now().plusSeconds(3600),
-            null, null);
+            null, null, null, null);
             Session session = sessionService.createSession(request);
             sessionService.activateSession(session.sessionId());
 
@@ -246,7 +246,7 @@ class SessionServiceTest extends BaseIntegrationTest {
                     "owner-123",
                     "boy",
                     Instant.now().plusSeconds(3600),
-            null, null);
+            null, null, null, null);
             Session session = sessionService.createSession(request);
             sessionService.activateSession(session.sessionId());
             sessionService.endSession(session.sessionId());
@@ -289,7 +289,7 @@ class SessionServiceTest extends BaseIntegrationTest {
                     "owner-123",
                     "boy",
                     Instant.now().plusSeconds(3600),
-            null, null);
+            null, null, null, null);
             Session session = sessionService.createSession(request);
 
             // When/Then
@@ -316,7 +316,7 @@ class SessionServiceTest extends BaseIntegrationTest {
                     "owner-123",
                     "boy",
                     Instant.now().plusSeconds(3600),
-            null, null);
+            null, null, null, null);
             Session session = sessionService.createSession(request);
 
             // When - Some time passes (simulated by just retrieving)

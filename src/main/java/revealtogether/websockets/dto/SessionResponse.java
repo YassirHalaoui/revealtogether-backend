@@ -8,6 +8,7 @@ import java.time.Instant;
 
 public record SessionResponse(
         String sessionId,
+        String firestoreId,
         SessionStatus status,
         Instant revealTime,
         Instant createdAt,
@@ -17,6 +18,7 @@ public record SessionResponse(
     public static SessionResponse from(Session session, String baseUrl) {
         return new SessionResponse(
                 session.sessionId(),
+                session.sessionId(),   // firestoreId == sessionId (backend owns the doc)
                 session.status(),
                 session.revealTime(),
                 session.createdAt(),

@@ -44,7 +44,7 @@ class ChatServiceTest extends BaseIntegrationTest {
                 "owner-123",
                 "boy",
                 Instant.now().plusSeconds(3600),
-        null, null);
+        null, null, null, null);
         Session session = sessionService.createSession(request);
         sessionId = session.sessionId();
 

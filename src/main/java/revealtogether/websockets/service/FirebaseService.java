@@ -30,7 +30,7 @@ public class FirebaseService {
         this.firestore = firestore;
     }
 
-    public void saveSession(Session session) {
+    public void saveSession(Session session, String theme, String paymentStatus) {
         if (firestore == null) {
             log.warn("Firebase not configured. Skipping session save.");
             return;
@@ -43,8 +43,10 @@ public class FirebaseService {
         data.put("status", session.status().getValue());
         data.put("revealTime", session.revealTime().toString());
         data.put("createdAt", session.createdAt().toString());
-        if (session.motherName() != null) data.put("m", session.motherName());
-        if (session.fatherName() != null) data.put("f", session.fatherName());
+        if (session.motherName() != null) data.put("motherName", session.motherName());
+        if (session.fatherName() != null) data.put("fatherName", session.fatherName());
+        if (theme != null) data.put("theme", theme);
+        data.put("paymentStatus", paymentStatus != null ? paymentStatus : "pending");
 
         try {
             firestore.collection(REVEALS_COLLECTION)

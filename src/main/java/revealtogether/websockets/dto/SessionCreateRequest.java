@@ -21,5 +21,9 @@ public record SessionCreateRequest(
 
         String motherName,
 
-        String fatherName
+        String fatherName,
+
+        String theme,
+
+        String paymentStatus
 ) {}

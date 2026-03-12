@@ -41,7 +41,7 @@ public class RevealController {
         log.info("Creating reveal session for owner: {}", request.ownerId());
 
         Session session = sessionService.createSession(request);
-        firebaseService.saveSession(session);
+        firebaseService.saveSession(session, request.theme(), request.paymentStatus());
 
         SessionResponse response = SessionResponse.from(session, baseUrl);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);

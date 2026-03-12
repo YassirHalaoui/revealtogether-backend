@@ -11,5 +11,21 @@ services:
       timeout: 3s
       retries: 3
 
+  app:
+    build: .
+    ports:
+      - "8181:8181"
+    environment:
+      UPSTASH_REDIS_URL: redis://redis:6379
+      PORT: 8181
+      BASE_URL: http://localhost:8181
+      ALLOWED_ORIGINS: http://localhost:3000
+      # Firebase: leave empty to use local credentials file from resources/
+      FIREBASE_CREDENTIALS: ""
+      LOG_LEVEL: DEBUG
+    depends_on:
+      redis:
+        condition: service_healthy
+
 volumes:
   redis-data:
