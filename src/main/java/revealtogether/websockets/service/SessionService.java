@@ -36,7 +36,9 @@ public class SessionService {
                 VoteOption.fromValue(request.gender()),
                 SessionStatus.WAITING,
                 request.revealTime(),
-                Instant.now()
+                Instant.now(),
+                request.motherName(),
+                request.fatherName()
         );
 
         redisRepository.saveSession(session);

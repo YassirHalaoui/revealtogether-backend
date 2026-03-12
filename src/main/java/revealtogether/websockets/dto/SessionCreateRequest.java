@@ -17,5 +17,9 @@ public record SessionCreateRequest(
 
         @NotNull(message = "Reveal time is required")
         @Future(message = "Reveal time must be in the future")
-        Instant revealTime
+        Instant revealTime,
+
+        String motherName,
+
+        String fatherName
 ) {}

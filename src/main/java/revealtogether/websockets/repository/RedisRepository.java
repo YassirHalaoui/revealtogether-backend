@@ -58,6 +58,8 @@ public class RedisRepository {
         fields.put("status", session.status().getValue());
         fields.put("revealTime", session.revealTime().toString());
         fields.put("createdAt", session.createdAt().toString());
+        if (session.motherName() != null) fields.put("motherName", session.motherName());
+        if (session.fatherName() != null) fields.put("fatherName", session.fatherName());
 
         redis.opsForHash().putAll(key, fields);
         redis.expire(key, sessionTtl);
@@ -79,7 +81,9 @@ public class RedisRepository {
                 VoteOption.fromValue((String) fields.get("gender")),
                 SessionStatus.fromValue((String) fields.get("status")),
                 Instant.parse((String) fields.get("revealTime")),
-                Instant.parse((String) fields.get("createdAt"))
+                Instant.parse((String) fields.get("createdAt")),
+                (String) fields.get("motherName"),
+                (String) fields.get("fatherName")
         ));
     }
 

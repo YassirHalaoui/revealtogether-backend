@@ -8,9 +8,11 @@ public record Session(
         VoteOption gender,
         SessionStatus status,
         Instant revealTime,
-        Instant createdAt
+        Instant createdAt,
+        String motherName,
+        String fatherName
 ) {
     public Session withStatus(SessionStatus newStatus) {
-        return new Session(sessionId, ownerId, gender, newStatus, revealTime, createdAt);
+        return new Session(sessionId, ownerId, gender, newStatus, revealTime, createdAt, motherName, fatherName);
     }
 }

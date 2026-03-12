@@ -43,6 +43,8 @@ public class FirebaseService {
         data.put("status", session.status().getValue());
         data.put("revealTime", session.revealTime().toString());
         data.put("createdAt", session.createdAt().toString());
+        if (session.motherName() != null) data.put("m", session.motherName());
+        if (session.fatherName() != null) data.put("f", session.fatherName());
 
         try {
             firestore.collection(REVEALS_COLLECTION)
