@@ -58,8 +58,8 @@ class WebSocketIntegrationTest extends BaseIntegrationTest {
         SessionCreateRequest request = new SessionCreateRequest(
                 "owner-123",
                 "boy",
-                Instant.now().plusSeconds(3600)
-        );
+                Instant.now().plusSeconds(3600),
+        null, null);
         Session session = sessionService.createSession(request);
         sessionId = session.sessionId();
         sessionService.activateSession(sessionId);

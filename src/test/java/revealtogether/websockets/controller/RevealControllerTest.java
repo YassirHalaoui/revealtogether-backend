@@ -49,8 +49,8 @@ class RevealControllerTest extends BaseIntegrationTest {
             SessionCreateRequest request = new SessionCreateRequest(
                     "owner-123",
                     "boy",
-                    Instant.now().plusSeconds(3600)
-            );
+                    Instant.now().plusSeconds(3600),
+            null, null);
 
             // When/Then
             webTestClient.post()
@@ -74,8 +74,8 @@ class RevealControllerTest extends BaseIntegrationTest {
             SessionCreateRequest request = new SessionCreateRequest(
                     "owner-456",
                     "girl",
-                    Instant.now().plusSeconds(7200)
-            );
+                    Instant.now().plusSeconds(7200),
+            null, null);
 
             // When/Then
             webTestClient.post()
@@ -270,8 +270,8 @@ class RevealControllerTest extends BaseIntegrationTest {
         SessionCreateRequest request = new SessionCreateRequest(
                 "owner-123",
                 "boy",
-                Instant.now().plusSeconds(3600)
-        );
+                Instant.now().plusSeconds(3600),
+        null, null);
         return sessionService.createSession(request);
     }
 }

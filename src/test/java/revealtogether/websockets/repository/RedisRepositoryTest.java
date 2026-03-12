@@ -375,7 +375,9 @@ class RedisRepositoryTest extends BaseIntegrationTest {
                 VoteOption.BOY,
                 SessionStatus.WAITING,
                 Instant.now().plusSeconds(3600),
-                Instant.now()
+                Instant.now(),
+                null,
+                null
         );
     }
 }

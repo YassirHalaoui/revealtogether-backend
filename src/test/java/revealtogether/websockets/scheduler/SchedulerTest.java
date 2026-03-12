@@ -51,8 +51,8 @@ class SchedulerTest extends BaseIntegrationTest {
             SessionCreateRequest request = new SessionCreateRequest(
                     "owner-123",
                     "boy",
-                    Instant.now().plusSeconds(3600)
-            );
+                    Instant.now().plusSeconds(3600),
+            null, null);
             Session session = sessionService.createSession(request);
             sessionId = session.sessionId();
             sessionService.activateSession(sessionId);
@@ -87,7 +87,7 @@ class SchedulerTest extends BaseIntegrationTest {
         void shouldHandleMultipleActiveSessions() {
             // Given - create multiple sessions
             Session session2 = sessionService.createSession(new SessionCreateRequest(
-                    "owner-456", "girl", Instant.now().plusSeconds(3600)
+                    "owner-456", "girl", Instant.now().plusSeconds(3600), null, null
             ));
             sessionService.activateSession(session2.sessionId());
 
@@ -115,8 +115,8 @@ class SchedulerTest extends BaseIntegrationTest {
             SessionCreateRequest request = new SessionCreateRequest(
                     "owner-123",
                     "boy",
-                    Instant.now().plusSeconds(60) // 1 minute from now
-            );
+                    Instant.now().plusSeconds(60), // 1 minute from now
+                    null, null);
             Session session = sessionService.createSession(request);
             assertThat(session.status()).isEqualTo(SessionStatus.WAITING);
 
@@ -136,8 +136,8 @@ class SchedulerTest extends BaseIntegrationTest {
             SessionCreateRequest request = new SessionCreateRequest(
                     "owner-123",
                     "boy",
-                    Instant.now().plusSeconds(600) // 10 minutes from now
-            );
+                    Instant.now().plusSeconds(600), // 10 minutes from now
+                    null, null);
             Session session = sessionService.createSession(request);
 
             // When
@@ -152,15 +152,9 @@ class SchedulerTest extends BaseIntegrationTest {
         @Test
         @DisplayName("Should end session when reveal time passes")
         void shouldEndSessionWhenRevealTimePasses() {
-            // Given - session with reveal time in the past
-            SessionCreateRequest request = new SessionCreateRequest(
-                    "owner-123",
-                    "girl",
-                    Instant.now().minusSeconds(1) // Already passed
-            );
-            // Manually create session with past time (bypassing validation for test)
+            // Given - create session, then wait for reveal time to pass
             Session session = sessionService.createSession(new SessionCreateRequest(
-                    "owner-123", "girl", Instant.now().plusSeconds(1)
+                    "owner-123", "girl", Instant.now().plusSeconds(1), null, null
             ));
             String sessionId = session.sessionId();
             sessionService.activateSession(sessionId);
@@ -188,8 +182,8 @@ class SchedulerTest extends BaseIntegrationTest {
             SessionCreateRequest request = new SessionCreateRequest(
                     "owner-123",
                     "boy",
-                    Instant.now().plusSeconds(1)
-            );
+                    Instant.now().plusSeconds(1),
+            null, null);
             Session session = sessionService.createSession(request);
             sessionService.activateSession(session.sessionId());
 
@@ -220,8 +214,8 @@ class SchedulerTest extends BaseIntegrationTest {
             SessionCreateRequest request = new SessionCreateRequest(
                     "owner-123",
                     "girl",
-                    Instant.now().plusSeconds(1)
-            );
+                    Instant.now().plusSeconds(1),
+            null, null);
             Session session = sessionService.createSession(request);
             sessionService.activateSession(session.sessionId());
 
