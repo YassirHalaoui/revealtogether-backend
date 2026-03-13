@@ -125,15 +125,20 @@ public class FirebaseService {
 
         String voteId = UUID.randomUUID().toString();
 
-        firestore.collection(REVEALS_COLLECTION)
+        var future = firestore.collection(REVEALS_COLLECTION)
                 .document(sessionId)
                 .collection("votes")
                 .document(voteId)
-                .set(data)
-                .addListener(
-                        () -> log.debug("Vote saved to Firestore: session={}, visitor={}", sessionId, visitorId),
-                        Runnable::run
-                );
+                .set(data);
+
+        future.addListener(() -> {
+            try {
+                future.get();
+                log.debug("Vote saved to Firestore: session={}, visitor={}", sessionId, visitorId);
+            } catch (Exception e) {
+                log.error("Failed to save vote to Firestore: session={}, visitor={}, error={}", sessionId, visitorId, e.getMessage());
+            }
+        }, Runnable::run);
     }
 
     /**
@@ -149,13 +154,18 @@ public class FirebaseService {
 
         String field = "votes." + option;
 
-        firestore.collection(REVEALS_COLLECTION)
+        var future = firestore.collection(REVEALS_COLLECTION)
                 .document(sessionId)
-                .update(field, FieldValue.increment(1))
-                .addListener(
-                        () -> log.debug("Vote count incremented in Firestore: session={}, option={}", sessionId, option),
-                        Runnable::run
-                );
+                .update(field, FieldValue.increment(1));
+
+        future.addListener(() -> {
+            try {
+                future.get();
+                log.debug("Vote count incremented in Firestore: session={}, option={}", sessionId, option);
+            } catch (Exception e) {
+                log.error("Failed to increment vote count in Firestore: session={}, option={}, error={}", sessionId, option, e.getMessage());
+            }
+        }, Runnable::run);
     }
 
     public Map<String, Object> getRevealData(String sessionId) {
