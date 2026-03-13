@@ -254,6 +254,20 @@ public class RedisRepository {
 
     // Cleanup
 
+    /**
+     * Deletes all Redis keys for a session. Safe to call even if keys don't exist.
+     */
+    public void deleteSession(String sessionId) {
+        redis.delete(SESSION_KEY + sessionId);
+        redis.delete(VOTES_KEY + sessionId);
+        redis.delete(VOTERS_KEY + sessionId);
+        redis.delete(VOTE_RECORDS_KEY + sessionId);
+        redis.delete(CHAT_KEY + sessionId);
+        redis.delete(DIRTY_KEY + sessionId);
+        removeActiveSession(sessionId);
+        log.info("Deleted all Redis keys for session {}", sessionId);
+    }
+
     public void setPostRevealTtl(String sessionId) {
         redis.expire(SESSION_KEY + sessionId, postRevealTtl);
         redis.expire(VOTES_KEY + sessionId, postRevealTtl);

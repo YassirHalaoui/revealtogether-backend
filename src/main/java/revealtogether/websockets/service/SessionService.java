@@ -122,4 +122,24 @@ public class SessionService {
         redisRepository.setPostRevealTtl(sessionId);
         sessionRegistry.unregister(sessionId);
     }
+
+    /**
+     * Deletes a session entirely. Safe regardless of current status:
+     * - Cleans up Redis keys if they exist (no error if already expired)
+     * - Unregisters from ActiveSessionRegistry
+     * - Firestore deletion is handled by the caller (RevealController)
+     *   so it can also broadcast "deleted" before returning the response.
+     *
+     * @return the session's status before deletion, or null if Redis had already expired
+     */
+    public SessionStatus deleteSession(String sessionId) {
+        Optional<Session> sessionOpt = getSession(sessionId);
+        SessionStatus statusBeforeDelete = sessionOpt.map(Session::status).orElse(null);
+
+        // Clean up Redis — all calls are no-ops if keys don't exist
+        redisRepository.deleteSession(sessionId);
+        sessionRegistry.unregister(sessionId);
+
+        return statusBeforeDelete;
+    }
 }

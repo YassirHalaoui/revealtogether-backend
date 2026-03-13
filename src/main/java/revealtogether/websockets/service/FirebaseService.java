@@ -272,6 +272,42 @@ public class FirebaseService {
         }
     }
 
+    /**
+     * Deletes the Firestore document and its entire votes subcollection.
+     * Safe to call even if the document doesn't exist.
+     */
+    public void deleteSession(String sessionId) {
+        if (firestore == null) {
+            log.warn("Firebase not configured. Skipping Firestore delete for session {}", sessionId);
+            return;
+        }
+
+        try {
+            // Delete all docs in votes subcollection first
+            var votesDocs = firestore.collection(REVEALS_COLLECTION)
+                    .document(sessionId)
+                    .collection("votes")
+                    .get()
+                    .get()
+                    .getDocuments();
+
+            for (QueryDocumentSnapshot voteDoc : votesDocs) {
+                voteDoc.getReference().delete().get();
+            }
+
+            // Delete the parent document (no-op if it doesn't exist)
+            firestore.collection(REVEALS_COLLECTION)
+                    .document(sessionId)
+                    .delete()
+                    .get();
+
+            log.info("Deleted Firestore session {} ({} vote docs removed)", sessionId, votesDocs.size());
+        } catch (InterruptedException | ExecutionException e) {
+            log.error("Failed to delete Firestore session {}", sessionId, e);
+            Thread.currentThread().interrupt();
+        }
+    }
+
     public Map<String, Object> getRevealData(String sessionId) {
         if (firestore == null) {
             log.warn("Firebase not configured. Cannot fetch reveal data.");

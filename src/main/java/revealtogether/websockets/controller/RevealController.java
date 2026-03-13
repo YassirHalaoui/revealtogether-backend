@@ -6,8 +6,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
 import revealtogether.websockets.domain.Session;
+import revealtogether.websockets.domain.SessionStatus;
 import revealtogether.websockets.dto.SessionCreateRequest;
 import revealtogether.websockets.dto.SessionResponse;
 import revealtogether.websockets.dto.SessionStateResponse;
@@ -24,15 +26,18 @@ public class RevealController {
 
     private final SessionService sessionService;
     private final FirebaseService firebaseService;
+    private final SimpMessagingTemplate messagingTemplate;
     private final String baseUrl;
 
     public RevealController(
             SessionService sessionService,
             FirebaseService firebaseService,
+            SimpMessagingTemplate messagingTemplate,
             @Value("${app.base-url:https://revealtogether.com}") String baseUrl
     ) {
         this.sessionService = sessionService;
         this.firebaseService = firebaseService;
+        this.messagingTemplate = messagingTemplate;
         this.baseUrl = baseUrl;
     }
 
@@ -63,6 +68,48 @@ public class RevealController {
         }
 
         return ResponseEntity.notFound().build();
+    }
+
+    @DeleteMapping("/reveals/{sessionId}")
+    public ResponseEntity<?> deleteReveal(
+            @PathVariable String sessionId,
+            @RequestParam String ownerId
+    ) {
+        // Check Redis first, then Firestore (handles expired Redis case)
+        String docOwnerId = null;
+        var sessionOpt = sessionService.getSession(sessionId);
+        if (sessionOpt.isPresent()) {
+            docOwnerId = sessionOpt.get().ownerId();
+        } else {
+            // Redis expired — check Firestore for ownership
+            Map<String, Object> firestoreData = firebaseService.getRevealData(sessionId);
+            if (firestoreData == null) {
+                return ResponseEntity.notFound().build();
+            }
+            docOwnerId = (String) firestoreData.get("ownerId");
+        }
+
+        // Authorization check
+        if (docOwnerId == null || !docOwnerId.equals(ownerId)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        // If session is live, broadcast "deleted" so connected clients redirect away
+        if (sessionOpt.isPresent() && sessionOpt.get().status() == SessionStatus.LIVE) {
+            messagingTemplate.convertAndSend(
+                    "/topic/votes/" + sessionId,
+                    (Object) Map.of("type", "deleted")
+            );
+        }
+
+        // Clean up Redis (no-op if already expired)
+        sessionService.deleteSession(sessionId);
+
+        // Clean up Firestore doc + votes subcollection
+        firebaseService.deleteSession(sessionId);
+
+        log.info("Reveal {} deleted by owner {}", sessionId, ownerId);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/session/{sessionId}/state")
