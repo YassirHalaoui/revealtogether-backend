@@ -66,7 +66,8 @@ public class SessionService {
 
     public SessionStateResponse getSessionState(String sessionId, String visitorId) {
         Optional<Session> sessionOpt = getSession(sessionId);
-        if (sessionOpt.isEmpty()) {
+        boolean redisExpired = sessionOpt.isEmpty();
+        if (redisExpired) {
             // Redis expired — try to reconstruct from Firestore
             sessionOpt = firebaseService.getSessionFromFirestore(sessionId);
             if (sessionOpt.isEmpty()) {
@@ -77,9 +78,9 @@ public class SessionService {
         Session session = sessionOpt.get();
         VoteCount votes = redisRepository.getVotes(sessionId);
         List<VoteRecord> recentVotes = redisRepository.getRecentVotes(sessionId, RECENT_VOTES_LIMIT);
-        if (recentVotes.isEmpty()) {
+        if (redisExpired) {
+            // Redis gone — load everything from Firestore
             recentVotes = firebaseService.getVoteRecords(sessionId);
-            // Recompute vote counts from Firestore records when Redis has expired
             if (!recentVotes.isEmpty()) {
                 long boy = recentVotes.stream().filter(v -> v.option() == VoteOption.BOY).count();
                 long girl = recentVotes.stream().filter(v -> v.option() == VoteOption.GIRL).count();
