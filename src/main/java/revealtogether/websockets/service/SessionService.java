@@ -22,10 +22,12 @@ public class SessionService {
 
     private final RedisRepository redisRepository;
     private final ActiveSessionRegistry sessionRegistry;
+    private final FirebaseService firebaseService;
 
-    public SessionService(RedisRepository redisRepository, ActiveSessionRegistry sessionRegistry) {
+    public SessionService(RedisRepository redisRepository, ActiveSessionRegistry sessionRegistry, FirebaseService firebaseService) {
         this.redisRepository = redisRepository;
         this.sessionRegistry = sessionRegistry;
+        this.firebaseService = firebaseService;
     }
 
     public Session createSession(SessionCreateRequest request) {
@@ -65,12 +67,25 @@ public class SessionService {
     public SessionStateResponse getSessionState(String sessionId, String visitorId) {
         Optional<Session> sessionOpt = getSession(sessionId);
         if (sessionOpt.isEmpty()) {
-            return null;
+            // Redis expired — try to reconstruct from Firestore
+            sessionOpt = firebaseService.getSessionFromFirestore(sessionId);
+            if (sessionOpt.isEmpty()) {
+                return null;
+            }
         }
 
         Session session = sessionOpt.get();
         VoteCount votes = redisRepository.getVotes(sessionId);
         List<VoteRecord> recentVotes = redisRepository.getRecentVotes(sessionId, RECENT_VOTES_LIMIT);
+        if (recentVotes.isEmpty()) {
+            recentVotes = firebaseService.getVoteRecords(sessionId);
+            // Recompute vote counts from Firestore records when Redis has expired
+            if (!recentVotes.isEmpty()) {
+                long boy = recentVotes.stream().filter(v -> v.option() == VoteOption.BOY).count();
+                long girl = recentVotes.stream().filter(v -> v.option() == VoteOption.GIRL).count();
+                votes = new VoteCount(boy, girl);
+            }
+        }
         List<ChatMessage> messages = redisRepository.getRecentMessages(sessionId, RECENT_MESSAGES_LIMIT);
         boolean hasVoted = redisRepository.hasVoted(sessionId, visitorId);
 

@@ -2,6 +2,7 @@ package revealtogether.websockets.service;
 
 import com.google.cloud.firestore.FieldValue;
 import com.google.cloud.firestore.Firestore;
+import com.google.cloud.firestore.QueryDocumentSnapshot;
 import com.google.cloud.firestore.SetOptions;
 import jakarta.annotation.Nullable;
 import org.slf4j.Logger;
@@ -9,12 +10,17 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import revealtogether.websockets.domain.ChatMessage;
 import revealtogether.websockets.domain.Session;
+import revealtogether.websockets.domain.SessionStatus;
 import revealtogether.websockets.domain.VoteCount;
+import revealtogether.websockets.domain.VoteOption;
+import revealtogether.websockets.domain.VoteRecord;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 
@@ -166,6 +172,104 @@ public class FirebaseService {
                 log.error("Failed to increment vote count in Firestore: session={}, option={}, error={}", sessionId, option, e.getMessage());
             }
         }, Runnable::run);
+    }
+
+    /**
+     * Reconstructs a Session from Firestore when Redis has expired.
+     * Used as fallback for getSessionState on old/ended sessions.
+     */
+    public Optional<Session> getSessionFromFirestore(String sessionId) {
+        if (firestore == null) {
+            return Optional.empty();
+        }
+
+        try {
+            var doc = firestore.collection(REVEALS_COLLECTION)
+                    .document(sessionId)
+                    .get()
+                    .get();
+
+            if (!doc.exists()) {
+                return Optional.empty();
+            }
+
+            Map<String, Object> data = doc.getData();
+            String ownerId = (String) data.get("ownerId");
+            String gender = (String) data.get("gender");
+            String status = (String) data.get("status");
+            String revealTime = (String) data.get("revealTime");
+            String createdAt = (String) data.get("createdAt");
+            String motherName = (String) data.get("motherName");
+            String fatherName = (String) data.get("fatherName");
+
+            if (ownerId == null || gender == null || status == null || revealTime == null || createdAt == null) {
+                log.warn("Incomplete Firestore document for session {}", sessionId);
+                return Optional.empty();
+            }
+
+            Session session = new Session(
+                    sessionId,
+                    ownerId,
+                    VoteOption.fromValue(gender),
+                    SessionStatus.fromValue(status),
+                    Instant.parse(revealTime),
+                    Instant.parse(createdAt),
+                    motherName,
+                    fatherName
+            );
+            log.info("Session {} reconstructed from Firestore (Redis expired)", sessionId);
+            return Optional.of(session);
+        } catch (InterruptedException | ExecutionException e) {
+            log.error("Failed to reconstruct session {} from Firestore", sessionId, e);
+            Thread.currentThread().interrupt();
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Reads all individual vote records from reveals/{sessionId}/votes subcollection.
+     * Used as fallback when Redis has expired.
+     */
+    public List<VoteRecord> getVoteRecords(String sessionId) {
+        if (firestore == null) {
+            log.warn("Firebase not configured. Cannot fetch vote records.");
+            return List.of();
+        }
+
+        try {
+            List<QueryDocumentSnapshot> docs = firestore.collection(REVEALS_COLLECTION)
+                    .document(sessionId)
+                    .collection("votes")
+                    .get()
+                    .get()
+                    .getDocuments();
+
+            List<VoteRecord> records = new ArrayList<>();
+            for (QueryDocumentSnapshot doc : docs) {
+                try {
+                    String visitorId = doc.getString("visitorId");
+                    String name = doc.getString("name");
+                    String vote = doc.getString("vote");
+                    String timestamp = doc.getString("timestamp");
+                    if (visitorId != null && name != null && vote != null) {
+                        records.add(new VoteRecord(
+                                visitorId,
+                                name,
+                                VoteOption.fromValue(vote),
+                                timestamp != null ? Instant.parse(timestamp) : Instant.now()
+                        ));
+                    }
+                } catch (Exception e) {
+                    log.warn("Skipping malformed vote doc {}: {}", doc.getId(), e.getMessage());
+                }
+            }
+            records.sort(java.util.Comparator.comparing(VoteRecord::timestamp));
+            return records;
+        } catch (InterruptedException | ExecutionException e) {
+            log.error("Failed to fetch vote records from Firestore for session {}", sessionId, e);
+            Thread.currentThread().interrupt();
+            return List.of();
+        }
     }
 
     public Map<String, Object> getRevealData(String sessionId) {
