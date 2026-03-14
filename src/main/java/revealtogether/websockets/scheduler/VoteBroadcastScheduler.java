@@ -30,12 +30,12 @@ public class VoteBroadcastScheduler {
 
     @Scheduled(fixedRateString = "${app.broadcast.interval-ms:500}")
     public void broadcastVotes() {
-        // Zero Redis cost when no active sessions
-        if (!sessionRegistry.hasActiveSessions()) {
+        // Only poll live sessions — waiting sessions never have vote updates
+        if (!sessionRegistry.hasLiveSessions()) {
             return;
         }
 
-        for (String sessionId : sessionRegistry.getActiveSessions()) {
+        for (String sessionId : sessionRegistry.getLiveSessions()) {
             if (redisRepository.isDirtyAndClear(sessionId)) {
                 VoteCount votes = redisRepository.getVotes(sessionId);
                 messagingTemplate.convertAndSend("/topic/votes/" + sessionId, votes);

@@ -114,6 +114,7 @@ public class SessionService {
 
     public void activateSession(String sessionId) {
         updateStatus(sessionId, SessionStatus.LIVE);
+        sessionRegistry.markLive(sessionId);
     }
 
     public void endSession(String sessionId) {

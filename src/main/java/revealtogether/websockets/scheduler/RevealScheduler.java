@@ -17,7 +17,6 @@ import revealtogether.websockets.service.VoteService;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.List;
 
 @Component
 public class RevealScheduler {
@@ -49,29 +48,37 @@ public class RevealScheduler {
 
     @Scheduled(fixedRate = 1000)
     public void checkReveals() {
-        // Zero Redis cost when no active sessions
         if (!sessionRegistry.hasActiveSessions()) {
             return;
         }
 
         Instant now = Instant.now();
 
-        // Copy to avoid ConcurrentModificationException when unregistering during iteration
-        List<String> sessions = new ArrayList<>(sessionRegistry.getActiveSessions());
-
-        for (String sessionId : sessions) {
+        // Check live sessions every tick — need to detect reveal time passing quickly
+        for (String sessionId : new ArrayList<>(sessionRegistry.getLiveSessions())) {
             sessionService.getSession(sessionId).ifPresent(session -> {
-                // Activate waiting sessions 5 minutes before reveal
+                if (now.isAfter(session.revealTime())) {
+                    triggerReveal(session);
+                }
+            });
+        }
+    }
+
+    @Scheduled(fixedRate = 10_000)
+    public void checkWaitingSessions() {
+        if (sessionRegistry.getWaitingSessions().isEmpty()) {
+            return;
+        }
+
+        Instant now = Instant.now();
+
+        // Check waiting sessions every 10s — activating 5 min before reveal doesn't need 1s precision
+        for (String sessionId : new ArrayList<>(sessionRegistry.getWaitingSessions())) {
+            sessionService.getSession(sessionId).ifPresent(session -> {
                 if (session.status() == SessionStatus.WAITING &&
                         now.isAfter(session.revealTime().minusSeconds(300))) {
                     sessionService.activateSession(sessionId);
                     log.info("Session {} activated", sessionId);
-                }
-
-                // End sessions when reveal time passes
-                if (session.status() != SessionStatus.ENDED &&
-                        now.isAfter(session.revealTime())) {
-                    triggerReveal(session);
                 }
             });
         }

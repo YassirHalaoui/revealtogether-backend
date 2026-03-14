@@ -13,20 +13,21 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * In-memory registry of active session IDs.
+ * In-memory registry split by status to minimize Redis commands.
  *
- * Sessions are registered when created via REST API and unregistered when ended.
- * A periodic reconciliation with Redis (every 60s) acts as a safety net for
- * server restarts or missed events.
+ * - waitingSessions: not yet live. RevealScheduler checks every 10s (not 1s).
+ * - liveSessions: accepting votes. Both schedulers run at full rate.
  *
- * This eliminates ALL Redis polling when no sessions are active (zero commands when idle).
+ * Cost: WAITING session = ~0.1 cmd/sec vs 3 cmd/sec before.
+ * A session waiting 3h now costs 1,080 cmds instead of 32,400.
  */
 @Component
 public class ActiveSessionRegistry {
 
     private static final Logger log = LoggerFactory.getLogger(ActiveSessionRegistry.class);
 
-    private final Set<String> activeSessions = ConcurrentHashMap.newKeySet();
+    private final Set<String> waitingSessions = ConcurrentHashMap.newKeySet();
+    private final Set<String> liveSessions = ConcurrentHashMap.newKeySet();
     private final RedisRepository redisRepository;
 
     public ActiveSessionRegistry(RedisRepository redisRepository) {
@@ -36,56 +37,82 @@ public class ActiveSessionRegistry {
     @PostConstruct
     public void initialize() {
         reconcileWithRedis();
-        log.info("ActiveSessionRegistry initialized with {} sessions", activeSessions.size());
+        log.info("ActiveSessionRegistry initialized: {} waiting, {} live",
+                waitingSessions.size(), liveSessions.size());
     }
 
     public void register(String sessionId) {
-        activeSessions.add(sessionId);
-        log.debug("Session registered: {} (total: {})", sessionId, activeSessions.size());
+        waitingSessions.add(sessionId);
+        log.debug("Session registered as waiting: {}", sessionId);
+    }
+
+    public void markLive(String sessionId) {
+        waitingSessions.remove(sessionId);
+        liveSessions.add(sessionId);
+        log.debug("Session marked live: {}", sessionId);
     }
 
     public void unregister(String sessionId) {
-        activeSessions.remove(sessionId);
-        log.debug("Session unregistered: {} (total: {})", sessionId, activeSessions.size());
+        waitingSessions.remove(sessionId);
+        liveSessions.remove(sessionId);
+        log.debug("Session unregistered: {}", sessionId);
     }
 
-    public Set<String> getActiveSessions() {
-        return Collections.unmodifiableSet(activeSessions);
+    public Set<String> getWaitingSessions() {
+        return Collections.unmodifiableSet(waitingSessions);
+    }
+
+    public Set<String> getLiveSessions() {
+        return Collections.unmodifiableSet(liveSessions);
+    }
+
+    public Set<String> getAllSessions() {
+        Set<String> all = new HashSet<>();
+        all.addAll(waitingSessions);
+        all.addAll(liveSessions);
+        return all;
     }
 
     public boolean hasActiveSessions() {
-        return !activeSessions.isEmpty();
+        return !waitingSessions.isEmpty() || !liveSessions.isEmpty();
     }
 
-    /**
-     * Reconcile local state with Redis every 60 seconds.
-     * Safety net for server restarts, crashes, or TTL-expired sessions.
-     * Also cleans up phantom sessions whose Redis keys expired but
-     * whose IDs remain in the active_sessions SET.
-     */
+    public boolean hasLiveSessions() {
+        return !liveSessions.isEmpty();
+    }
+
     @Scheduled(fixedRate = 60_000)
     public void reconcileWithRedis() {
         try {
             Set<String> redisSessions = redisRepository.getActiveSessions();
+            Set<String> valid = new HashSet<>();
 
-            // Validate each session still exists in Redis (keys may have expired via TTL)
-            Set<String> validSessions = new HashSet<>();
             for (String sessionId : redisSessions) {
                 if (redisRepository.sessionExists(sessionId)) {
-                    validSessions.add(sessionId);
+                    valid.add(sessionId);
                 } else {
-                    // Phantom session: ID in active_sessions SET but session key expired
                     redisRepository.removeActiveSession(sessionId);
                     log.info("Cleaned up phantom session: {}", sessionId);
                 }
             }
 
-            activeSessions.clear();
-            activeSessions.addAll(validSessions);
-            log.debug("Reconciled with Redis: {} active sessions ({} phantom removed)",
-                    validSessions.size(), redisSessions.size() - validSessions.size());
+            Set<String> currentLive = new HashSet<>(liveSessions);
+            waitingSessions.clear();
+            liveSessions.clear();
+
+            for (String sessionId : valid) {
+                if (currentLive.contains(sessionId)) {
+                    liveSessions.add(sessionId);
+                } else {
+                    waitingSessions.add(sessionId);
+                }
+            }
+
+            log.debug("Reconciled: {} waiting, {} live ({} phantoms removed)",
+                    waitingSessions.size(), liveSessions.size(),
+                    redisSessions.size() - valid.size());
         } catch (Exception e) {
-            log.warn("Redis reconciliation failed, keeping local state ({} sessions)", activeSessions.size(), e);
+            log.warn("Redis reconciliation failed, keeping local state", e);
         }
     }
 }
