@@ -6,7 +6,6 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import revealtogether.websockets.domain.Session;
-import revealtogether.websockets.domain.SessionStatus;
 import revealtogether.websockets.domain.VoteCount;
 import revealtogether.websockets.dto.RevealEvent;
 import revealtogether.websockets.service.ActiveSessionRegistry;
@@ -64,23 +63,20 @@ public class RevealScheduler {
         }
     }
 
-    @Scheduled(fixedRate = 10_000)
-    public void checkWaitingSessions() {
-        if (sessionRegistry.getWaitingSessions().isEmpty()) {
-            return;
-        }
-
-        Instant now = Instant.now();
-
-        // Check waiting sessions every 10s — activating 5 min before reveal doesn't need 1s precision
-        for (String sessionId : new ArrayList<>(sessionRegistry.getWaitingSessions())) {
-            sessionService.getSession(sessionId).ifPresent(session -> {
-                if (session.status() == SessionStatus.WAITING &&
-                        now.isAfter(session.revealTime().minusSeconds(300))) {
-                    sessionService.activateSession(sessionId);
-                    log.info("Session {} activated", sessionId);
-                }
-            });
+    /**
+     * Every 60s: query Firestore for WAITING sessions whose revealTime is within 30 minutes.
+     * Load them into Redis and mark live so schedulers can take over.
+     * Firestore reads are free — this replaces all Redis polling for waiting sessions.
+     * Sessions created days in advance cost ZERO Redis commands until this window opens.
+     */
+    @Scheduled(fixedRate = 60_000)
+    public void loadUpcomingSessions() {
+        var upcoming = firebaseService.getUpcomingSessions(1800); // 30-minute window
+        for (var session : upcoming) {
+            if (!sessionRegistry.getLiveSessions().contains(session.sessionId())) {
+                sessionService.loadIntoRedis(session);
+                log.info("Session {} pre-loaded into Redis (reveal in <30min)", session.sessionId());
+            }
         }
     }
 

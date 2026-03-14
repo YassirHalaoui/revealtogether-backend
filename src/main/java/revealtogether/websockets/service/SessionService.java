@@ -43,12 +43,22 @@ public class SessionService {
                 request.fatherName()
         );
 
-        redisRepository.saveSession(session);
-        redisRepository.initializeVotes(sessionId);
-        sessionRegistry.register(sessionId);
-
+        // Do NOT write to Redis on creation — Firestore is the source of truth for waiting sessions.
+        // Redis is loaded lazily by RevealScheduler 30 minutes before reveal time.
+        // This eliminates all Redis cost for sessions created days in advance.
         log.info("Created session: {} with reveal time: {}", sessionId, request.revealTime());
         return session;
+    }
+
+    /**
+     * Loads a session into Redis and marks it live in the registry.
+     * Called by RevealScheduler when a session enters the 30-min pre-reveal window.
+     */
+    public void loadIntoRedis(Session session) {
+        redisRepository.saveSession(session);
+        redisRepository.initializeVotes(session.sessionId());
+        sessionRegistry.markLive(session.sessionId());
+        log.info("Session {} loaded into Redis (30-min window)", session.sessionId());
     }
 
     public Optional<Session> getSession(String sessionId) {

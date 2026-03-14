@@ -175,6 +175,55 @@ public class FirebaseService {
     }
 
     /**
+     * Queries Firestore for WAITING sessions whose revealTime is within the next windowSeconds.
+     * Used by RevealScheduler to lazily load sessions into Redis just before they go live.
+     * Firestore reads are free — this replaces Redis polling for waiting sessions entirely.
+     */
+    public List<Session> getUpcomingSessions(int windowSeconds) {
+        if (firestore == null) {
+            return List.of();
+        }
+
+        try {
+            String now = Instant.now().toString();
+            String cutoff = Instant.now().plusSeconds(windowSeconds).toString();
+
+            List<QueryDocumentSnapshot> docs = firestore.collection(REVEALS_COLLECTION)
+                    .whereEqualTo("status", "waiting")
+                    .whereGreaterThanOrEqualTo("revealTime", now)
+                    .whereLessThanOrEqualTo("revealTime", cutoff)
+                    .get()
+                    .get()
+                    .getDocuments();
+
+            List<Session> sessions = new ArrayList<>();
+            for (QueryDocumentSnapshot doc : docs) {
+                try {
+                    Map<String, Object> data = doc.getData();
+                    sessions.add(new Session(
+                            (String) data.get("sessionId"),
+                            (String) data.get("ownerId"),
+                            VoteOption.fromValue((String) data.get("gender")),
+                            SessionStatus.fromValue((String) data.get("status")),
+                            Instant.parse((String) data.get("revealTime")),
+                            Instant.parse((String) data.get("createdAt")),
+                            (String) data.get("motherName"),
+                            (String) data.get("fatherName")
+                    ));
+                } catch (Exception e) {
+                    log.warn("Skipping malformed session doc {}: {}", doc.getId(), e.getMessage());
+                }
+            }
+            log.debug("Found {} upcoming sessions within {}s window", sessions.size(), windowSeconds);
+            return sessions;
+        } catch (InterruptedException | ExecutionException e) {
+            log.error("Failed to query upcoming sessions from Firestore", e);
+            Thread.currentThread().interrupt();
+            return List.of();
+        }
+    }
+
+    /**
      * Reconstructs a Session from Firestore when Redis has expired.
      * Used as fallback for getSessionState on old/ended sessions.
      */
