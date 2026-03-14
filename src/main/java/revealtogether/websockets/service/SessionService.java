@@ -57,8 +57,10 @@ public class SessionService {
     public void loadIntoRedis(Session session) {
         redisRepository.saveSession(session);
         redisRepository.initializeVotes(session.sessionId());
+        // Write LIVE status to Redis immediately — session is entering the active window
+        redisRepository.updateSessionStatus(session.sessionId(), SessionStatus.LIVE);
         sessionRegistry.markLive(session.sessionId());
-        log.info("Session {} loaded into Redis (30-min window)", session.sessionId());
+        log.info("Session {} loaded into Redis as LIVE (30-min window)", session.sessionId());
     }
 
     public Optional<Session> getSession(String sessionId) {
