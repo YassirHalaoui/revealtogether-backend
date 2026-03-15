@@ -146,9 +146,7 @@ public class SessionService {
     }
 
     public void endSession(String sessionId) {
-        updateStatus(sessionId, SessionStatus.ENDED);
-        redisRepository.removeActiveSession(sessionId);
-        redisRepository.setPostRevealTtl(sessionId);
+        redisRepository.deleteSession(sessionId);
         sessionRegistry.unregister(sessionId);
     }
 
