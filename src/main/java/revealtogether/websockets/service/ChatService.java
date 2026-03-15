@@ -20,6 +20,7 @@ public class ChatService {
 
     private final RedisRepository redisRepository;
     private final SessionService sessionService;
+    private final FirebaseService firebaseService;
     private final SimpMessagingTemplate messagingTemplate;
     private final int maxMessageLength;
     private final int maxNameLength;
@@ -27,12 +28,14 @@ public class ChatService {
     public ChatService(
             RedisRepository redisRepository,
             SessionService sessionService,
+            FirebaseService firebaseService,
             SimpMessagingTemplate messagingTemplate,
             @Value("${app.chat.max-length:280}") int maxMessageLength,
             @Value("${app.name.max-length:50}") int maxNameLength
     ) {
         this.redisRepository = redisRepository;
         this.sessionService = sessionService;
+        this.firebaseService = firebaseService;
         this.messagingTemplate = messagingTemplate;
         this.maxMessageLength = maxMessageLength;
         this.maxNameLength = maxNameLength;
@@ -45,11 +48,16 @@ public class ChatService {
             return false;
         }
 
-        // Check session exists and is active
+        // Check session exists and is active — load from Firestore if not yet in Redis
         var sessionOpt = sessionService.getSession(sessionId);
         if (sessionOpt.isEmpty()) {
-            log.warn("Chat attempted on non-existent session: {}", sessionId);
-            return false;
+            var firestoreSession = firebaseService.getSessionFromFirestore(sessionId);
+            if (firestoreSession.isEmpty()) {
+                log.warn("Chat attempted on non-existent session: {}", sessionId);
+                return false;
+            }
+            sessionService.loadIntoRedis(firestoreSession.get());
+            sessionOpt = sessionService.getSession(sessionId);
         }
 
         var session = sessionOpt.get();

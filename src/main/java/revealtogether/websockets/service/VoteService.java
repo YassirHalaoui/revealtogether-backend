@@ -33,11 +33,16 @@ public class VoteService {
             return VoteResponse.rateLimited();
         }
 
-        // Check session exists and is active
+        // Check session exists and is active — load from Firestore if not yet in Redis
         var sessionOpt = sessionService.getSession(sessionId);
         if (sessionOpt.isEmpty()) {
-            log.warn("Vote attempted on non-existent session: {}", sessionId);
-            return new VoteResponse(false, "Session not found");
+            var firestoreSession = firebaseService.getSessionFromFirestore(sessionId);
+            if (firestoreSession.isEmpty()) {
+                log.warn("Vote attempted on non-existent session: {}", sessionId);
+                return new VoteResponse(false, "Session not found");
+            }
+            sessionService.loadIntoRedis(firestoreSession.get());
+            sessionOpt = sessionService.getSession(sessionId);
         }
 
         var session = sessionOpt.get();
