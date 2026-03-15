@@ -56,7 +56,23 @@ public class SessionService {
      */
     public void loadIntoRedis(Session session) {
         redisRepository.saveSession(session);
-        redisRepository.initializeVotes(session.sessionId());
+
+        // Restore existing votes from Firestore — do NOT zero out if votes already exist
+        List<VoteRecord> existingVotes = firebaseService.getVoteRecords(session.sessionId());
+        if (existingVotes.isEmpty()) {
+            redisRepository.initializeVotes(session.sessionId());
+        } else {
+            long boy = existingVotes.stream().filter(v -> v.option() == VoteOption.BOY).count();
+            long girl = existingVotes.stream().filter(v -> v.option() == VoteOption.GIRL).count();
+            redisRepository.restoreVotes(session.sessionId(), boy, girl);
+            // Restore voters set so duplicate vote prevention still works
+            for (VoteRecord record : existingVotes) {
+                redisRepository.restoreVoter(session.sessionId(), record.visitorId());
+            }
+            log.info("Session {} restored {} votes from Firestore (boy={}, girl={})",
+                    session.sessionId(), existingVotes.size(), boy, girl);
+        }
+
         // Write LIVE status to Redis immediately — session is entering the active window
         redisRepository.updateSessionStatus(session.sessionId(), SessionStatus.LIVE);
         sessionRegistry.markLive(session.sessionId());

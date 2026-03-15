@@ -105,6 +105,19 @@ public class RedisRepository {
         redis.expire(key, sessionTtl);
     }
 
+    public void restoreVotes(String sessionId, long boy, long girl) {
+        String key = VOTES_KEY + sessionId;
+        redis.opsForHash().put(key, "boy", String.valueOf(boy));
+        redis.opsForHash().put(key, "girl", String.valueOf(girl));
+        redis.expire(key, sessionTtl);
+    }
+
+    public void restoreVoter(String sessionId, String visitorId) {
+        String key = VOTERS_KEY + sessionId;
+        redis.opsForSet().add(key, visitorId);
+        redis.expire(key, sessionTtl);
+    }
+
     public boolean hasVoted(String sessionId, String visitorId) {
         return Boolean.TRUE.equals(
                 redis.opsForSet().isMember(VOTERS_KEY + sessionId, visitorId)
