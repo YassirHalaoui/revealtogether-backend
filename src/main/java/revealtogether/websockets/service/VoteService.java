@@ -41,7 +41,7 @@ public class VoteService {
                 log.warn("Vote attempted on non-existent session: {}", sessionId);
                 return new VoteResponse(false, "Session not found");
             }
-            sessionService.loadIntoRedis(firestoreSession.get());
+            sessionService.loadIntoRedis(firestoreSession.get(), false);
             sessionOpt = sessionService.getSession(sessionId);
         }
 

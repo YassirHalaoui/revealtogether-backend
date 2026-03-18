@@ -56,7 +56,7 @@ public class ChatService {
                 log.warn("Chat attempted on non-existent session: {}", sessionId);
                 return false;
             }
-            sessionService.loadIntoRedis(firestoreSession.get());
+            sessionService.loadIntoRedis(firestoreSession.get(), false);
             sessionOpt = sessionService.getSession(sessionId);
         }
 

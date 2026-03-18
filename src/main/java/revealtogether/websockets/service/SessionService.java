@@ -55,6 +55,15 @@ public class SessionService {
      * Called by RevealScheduler when a session enters the 30-min pre-reveal window.
      */
     public void loadIntoRedis(Session session) {
+        loadIntoRedis(session, true);
+    }
+
+    /**
+     * @param forceLive true when called from the 30-min scheduler (session enters active window).
+     *                  false when called on-demand (e.g. user votes before reveal time) —
+     *                  keeps WAITING status so the scheduler doesn't poll it every second.
+     */
+    public void loadIntoRedis(Session session, boolean forceLife) {
         redisRepository.saveSession(session);
 
         // Restore existing votes from Firestore — do NOT zero out if votes already exist
@@ -65,7 +74,6 @@ public class SessionService {
             long boy = existingVotes.stream().filter(v -> v.option() == VoteOption.BOY).count();
             long girl = existingVotes.stream().filter(v -> v.option() == VoteOption.GIRL).count();
             redisRepository.restoreVotes(session.sessionId(), boy, girl);
-            // Restore voters set so duplicate vote prevention still works
             for (VoteRecord record : existingVotes) {
                 redisRepository.restoreVoter(session.sessionId(), record.visitorId());
             }
@@ -73,10 +81,13 @@ public class SessionService {
                     session.sessionId(), existingVotes.size(), boy, girl);
         }
 
-        // Write LIVE status to Redis immediately — session is entering the active window
-        redisRepository.updateSessionStatus(session.sessionId(), SessionStatus.LIVE);
-        sessionRegistry.markLive(session.sessionId());
-        log.info("Session {} loaded into Redis as LIVE (30-min window)", session.sessionId());
+        if (forceLife) {
+            redisRepository.updateSessionStatus(session.sessionId(), SessionStatus.LIVE);
+            sessionRegistry.markLive(session.sessionId());
+            log.info("Session {} loaded into Redis as LIVE (30-min window)", session.sessionId());
+        } else {
+            log.info("Session {} cached in Redis as WAITING (on-demand load)", session.sessionId());
+        }
     }
 
     public Optional<Session> getSession(String sessionId) {
