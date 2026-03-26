@@ -77,6 +77,7 @@ public class SessionService {
             for (VoteRecord record : existingVotes) {
                 redisRepository.restoreVoter(session.sessionId(), record.visitorId());
             }
+            redisRepository.restoreVoteRecords(session.sessionId(), existingVotes);
             log.info("Session {} restored {} votes from Firestore (boy={}, girl={})",
                     session.sessionId(), existingVotes.size(), boy, girl);
         }

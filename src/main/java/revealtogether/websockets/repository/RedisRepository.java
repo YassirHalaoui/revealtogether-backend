@@ -118,6 +118,23 @@ public class RedisRepository {
         redis.expire(key, sessionTtl);
     }
 
+    public void restoreVoteRecords(String sessionId, List<VoteRecord> records) {
+        String key = VOTE_RECORDS_KEY + sessionId;
+        // saveVoteRecord uses leftPush so index 0 = newest. To restore the same layout,
+        // push oldest-first (iterate in reverse) so newest ends up at index 0.
+        for (int i = records.size() - 1; i >= 0; i--) {
+            try {
+                String json = objectMapper.writeValueAsString(records.get(i));
+                redis.opsForList().leftPush(key, json);
+            } catch (JsonProcessingException e) {
+                log.error("Failed to serialize vote record during restore", e);
+            }
+        }
+        // Cap at 100 to match saveVoteRecord behaviour
+        redis.opsForList().trim(key, 0, 99);
+        redis.expire(key, sessionTtl);
+    }
+
     public boolean hasVoted(String sessionId, String visitorId) {
         return Boolean.TRUE.equals(
                 redis.opsForSet().isMember(VOTERS_KEY + sessionId, visitorId)
