@@ -66,6 +66,40 @@ public class FirebaseService {
         }
     }
 
+    /**
+     * Updates an existing reveal doc without overwriting createdAt.
+     * Used when existingRevealId is provided in POST /api/reveals.
+     */
+    public void updateSession(Session session, String theme, String paymentStatus) {
+        if (firestore == null) {
+            log.warn("Firebase not configured. Skipping session update.");
+            return;
+        }
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("sessionId", session.sessionId());
+        data.put("ownerId", session.ownerId());
+        data.put("gender", session.gender().getValue());
+        data.put("status", session.status().getValue());
+        data.put("revealTime", session.revealTime().toString());
+        data.put("updatedAt", FieldValue.serverTimestamp());
+        if (session.motherName() != null) data.put("motherName", session.motherName());
+        if (session.fatherName() != null) data.put("fatherName", session.fatherName());
+        if (theme != null) data.put("theme", theme);
+        data.put("paymentStatus", paymentStatus != null ? paymentStatus : "pending");
+
+        try {
+            firestore.collection(REVEALS_COLLECTION)
+                    .document(session.sessionId())
+                    .set(data, SetOptions.merge())
+                    .get();
+            log.info("Session {} updated in Firebase", session.sessionId());
+        } catch (InterruptedException | ExecutionException e) {
+            log.error("Failed to update session in Firebase", e);
+            Thread.currentThread().interrupt();
+        }
+    }
+
     public void saveRevealResults(Session session, VoteCount votes, List<ChatMessage> chatHistory) {
         if (firestore == null) {
             log.warn("Firebase not configured. Skipping results save.");
@@ -360,7 +394,7 @@ public class FirebaseService {
     /**
      * Upserts a pending reveal for a user.
      * - If the user already has a pending reveal, updates it and returns its ID.
-     * - If the user has a completed reveal with the same ID, returns it untouched.
+     * - If the user only has completed reveals, creates a fresh pending reveal.
      * - Never creates more than one pending reveal per user.
      * - Idempotent: safe to call multiple times.
      */

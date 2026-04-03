@@ -46,7 +46,7 @@ public class RevealController {
 
     @PostMapping("/reveals/pending")
     public ResponseEntity<?> upsertPendingReveal(
-            @RequestHeader("Authorization") String authHeader,
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
             @Valid @RequestBody PendingRevealRequest request
     ) {
         // Verify Firebase ID token
@@ -90,9 +90,16 @@ public class RevealController {
                 if (!request.ownerId().equals(existingOwner)) {
                     return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
                 }
-                // Build a session using the existing ID and update Firestore
+                // Never overwrite a completed reveal — return it as-is
+                String existingPaymentStatus = (String) existing.get("paymentStatus");
+                if ("completed".equals(existingPaymentStatus)) {
+                    log.warn("Attempted to overwrite completed reveal {} — returning as-is", request.existingRevealId());
+                    Session session = sessionService.createSessionWithId(request, request.existingRevealId());
+                    return ResponseEntity.status(HttpStatus.CREATED).body(SessionResponse.from(session, baseUrl));
+                }
+                // Update pending reveal — preserve original createdAt by not re-saving session object
                 Session session = sessionService.createSessionWithId(request, request.existingRevealId());
-                firebaseService.saveSession(session, request.theme(), request.paymentStatus());
+                firebaseService.updateSession(session, request.theme(), request.paymentStatus());
                 return ResponseEntity.status(HttpStatus.CREATED).body(SessionResponse.from(session, baseUrl));
             }
             // existingRevealId not found — fall through and create fresh
