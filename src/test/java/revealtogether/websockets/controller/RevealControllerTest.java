@@ -50,7 +50,7 @@ class RevealControllerTest extends BaseIntegrationTest {
                     "owner-123",
                     "boy",
                     Instant.now().plusSeconds(3600),
-            null, null, null, null);
+            null, null, null, null, null);
 
             // When/Then
             webTestClient.post()
@@ -75,7 +75,7 @@ class RevealControllerTest extends BaseIntegrationTest {
                     "owner-456",
                     "girl",
                     Instant.now().plusSeconds(7200),
-            null, null, null, null);
+            null, null, null, null, null);
 
             // When/Then
             webTestClient.post()
@@ -271,7 +271,7 @@ class RevealControllerTest extends BaseIntegrationTest {
                 "owner-123",
                 "boy",
                 Instant.now().plusSeconds(3600),
-        null, null, null, null);
+        null, null, null, null, null);
         return sessionService.createSession(request);
     }
 }
