@@ -25,5 +25,7 @@ public record SessionCreateRequest(
 
         String theme,
 
-        String paymentStatus
+        String paymentStatus,
+
+        String existingRevealId
 ) {}

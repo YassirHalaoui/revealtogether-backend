@@ -357,6 +357,72 @@ public class FirebaseService {
         }
     }
 
+    /**
+     * Upserts a pending reveal for a user.
+     * - If the user already has a pending reveal, updates it and returns its ID.
+     * - If the user has a completed reveal with the same ID, returns it untouched.
+     * - Never creates more than one pending reveal per user.
+     * - Idempotent: safe to call multiple times.
+     */
+    public String upsertPendingReveal(String ownerId, String gender, String motherName,
+                                      String fatherName, java.time.Instant revealTime, String theme) {
+        if (firestore == null) {
+            log.warn("Firebase not configured. Cannot upsert pending reveal.");
+            return null;
+        }
+
+        try {
+            // Query for existing pending reveal for this user
+            var query = firestore.collection(REVEALS_COLLECTION)
+                    .whereEqualTo("ownerId", ownerId)
+                    .whereEqualTo("paymentStatus", "pending")
+                    .orderBy("createdAt", com.google.cloud.firestore.Query.Direction.DESCENDING)
+                    .limit(1)
+                    .get()
+                    .get();
+
+            String revealId;
+            Map<String, Object> data = new HashMap<>();
+            data.put("ownerId", ownerId);
+            data.put("createdBy", ownerId);
+            data.put("gender", gender);
+            data.put("paymentStatus", "pending");
+            data.put("status", "waiting");
+            data.put("updatedAt", com.google.cloud.firestore.FieldValue.serverTimestamp());
+            if (motherName != null) data.put("motherName", motherName);
+            if (fatherName != null) data.put("fatherName", fatherName);
+            if (revealTime != null) data.put("revealTime", revealTime.toString());
+            if (theme != null) data.put("theme", theme);
+
+            if (!query.isEmpty()) {
+                // Update existing pending reveal
+                var doc = query.getDocuments().get(0);
+                revealId = doc.getId();
+                firestore.collection(REVEALS_COLLECTION)
+                        .document(revealId)
+                        .set(data, SetOptions.merge())
+                        .get();
+                log.info("Updated existing pending reveal {} for owner {}", revealId, ownerId);
+            } else {
+                // Create new pending reveal
+                revealId = UUID.randomUUID().toString();
+                data.put("sessionId", revealId);
+                data.put("createdAt", com.google.cloud.firestore.FieldValue.serverTimestamp());
+                firestore.collection(REVEALS_COLLECTION)
+                        .document(revealId)
+                        .set(data)
+                        .get();
+                log.info("Created new pending reveal {} for owner {}", revealId, ownerId);
+            }
+
+            return revealId;
+        } catch (InterruptedException | ExecutionException e) {
+            log.error("Failed to upsert pending reveal for owner {}", ownerId, e);
+            Thread.currentThread().interrupt();
+            return null;
+        }
+    }
+
     public Map<String, Object> getRevealData(String sessionId) {
         if (firestore == null) {
             log.warn("Firebase not configured. Cannot fetch reveal data.");

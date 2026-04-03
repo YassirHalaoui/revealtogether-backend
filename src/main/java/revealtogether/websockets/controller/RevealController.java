@@ -1,5 +1,7 @@
 package revealtogether.websockets.controller;
 
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseAuthException;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,6 +12,7 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
 import revealtogether.websockets.domain.Session;
 import revealtogether.websockets.domain.SessionStatus;
+import revealtogether.websockets.dto.PendingRevealRequest;
 import revealtogether.websockets.dto.SessionCreateRequest;
 import revealtogether.websockets.dto.SessionResponse;
 import revealtogether.websockets.dto.SessionStateResponse;
@@ -41,9 +44,59 @@ public class RevealController {
         this.baseUrl = baseUrl;
     }
 
+    @PostMapping("/reveals/pending")
+    public ResponseEntity<?> upsertPendingReveal(
+            @RequestHeader("Authorization") String authHeader,
+            @Valid @RequestBody PendingRevealRequest request
+    ) {
+        // Verify Firebase ID token
+        String uid;
+        try {
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Missing token");
+            }
+            String idToken = authHeader.substring(7);
+            uid = FirebaseAuth.getInstance().verifyIdToken(idToken).getUid();
+        } catch (FirebaseAuthException e) {
+            log.warn("Invalid Firebase token: {}", e.getMessage());
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid token");
+        }
+
+        String revealId = firebaseService.upsertPendingReveal(
+                uid,
+                request.gender(),
+                request.motherName(),
+                request.fatherName(),
+                request.revealTime(),
+                request.theme()
+        );
+
+        if (revealId == null) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Failed to upsert reveal");
+        }
+
+        return ResponseEntity.ok(Map.of("revealId", revealId));
+    }
+
     @PostMapping("/reveals")
     public ResponseEntity<SessionResponse> createReveal(@Valid @RequestBody SessionCreateRequest request) {
         log.info("Creating reveal session for owner: {}", request.ownerId());
+
+        // If existingRevealId provided, update that doc instead of creating a new one
+        if (request.existingRevealId() != null && !request.existingRevealId().isBlank()) {
+            Map<String, Object> existing = firebaseService.getRevealData(request.existingRevealId());
+            if (existing != null) {
+                String existingOwner = (String) existing.get("ownerId");
+                if (!request.ownerId().equals(existingOwner)) {
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+                }
+                // Build a session using the existing ID and update Firestore
+                Session session = sessionService.createSessionWithId(request, request.existingRevealId());
+                firebaseService.saveSession(session, request.theme(), request.paymentStatus());
+                return ResponseEntity.status(HttpStatus.CREATED).body(SessionResponse.from(session, baseUrl));
+            }
+            // existingRevealId not found — fall through and create fresh
+        }
 
         Session session = sessionService.createSession(request);
         firebaseService.saveSession(session, request.theme(), request.paymentStatus());

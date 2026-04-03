@@ -31,7 +31,10 @@ public class SessionService {
     }
 
     public Session createSession(SessionCreateRequest request) {
-        String sessionId = UUID.randomUUID().toString();
+        return createSessionWithId(request, UUID.randomUUID().toString());
+    }
+
+    public Session createSessionWithId(SessionCreateRequest request, String sessionId) {
         Session session = new Session(
                 sessionId,
                 request.ownerId(),
