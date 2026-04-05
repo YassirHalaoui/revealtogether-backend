@@ -239,8 +239,8 @@ public class FirebaseService {
                             (String) data.get("ownerId"),
                             VoteOption.fromValue((String) data.get("gender")),
                             SessionStatus.fromValue((String) data.get("status")),
-                            Instant.parse((String) data.get("revealTime")),
-                            Instant.parse((String) data.get("createdAt")),
+                            Instant.parse(toInstantString(data.get("revealTime"))),
+                            Instant.parse(toInstantString(data.get("createdAt"))),
                             (String) data.get("motherName"),
                             (String) data.get("fatherName")
                     ));
@@ -280,8 +280,8 @@ public class FirebaseService {
             String ownerId = (String) data.get("ownerId");
             String gender = (String) data.get("gender");
             String status = (String) data.get("status");
-            String revealTime = (String) data.get("revealTime");
-            String createdAt = (String) data.get("createdAt");
+            String revealTime = toInstantString(data.get("revealTime"));
+            String createdAt = toInstantString(data.get("createdAt"));
             String motherName = (String) data.get("motherName");
             String fatherName = (String) data.get("fatherName");
 
@@ -455,6 +455,17 @@ public class FirebaseService {
             Thread.currentThread().interrupt();
             return null;
         }
+    }
+
+    /**
+     * Safely converts a Firestore field to an ISO instant string.
+     * Handles both legacy String values and native Firestore Timestamp objects.
+     */
+    private String toInstantString(Object value) {
+        if (value == null) return null;
+        if (value instanceof String s) return s;
+        if (value instanceof com.google.cloud.Timestamp ts) return ts.toDate().toInstant().toString();
+        return value.toString();
     }
 
     public Map<String, Object> getRevealData(String sessionId) {
