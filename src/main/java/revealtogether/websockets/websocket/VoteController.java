@@ -10,6 +10,7 @@ import org.springframework.stereotype.Controller;
 import revealtogether.websockets.dto.VoteEvent;
 import revealtogether.websockets.dto.VoteRequest;
 import revealtogether.websockets.dto.VoteResponse;
+import revealtogether.websockets.service.ActiveSessionRegistry;
 import revealtogether.websockets.service.VoteService;
 
 @Controller
@@ -19,10 +20,16 @@ public class VoteController {
 
     private final VoteService voteService;
     private final SimpMessagingTemplate messagingTemplate;
+    private final ActiveSessionRegistry sessionRegistry;
 
-    public VoteController(VoteService voteService, SimpMessagingTemplate messagingTemplate) {
+    public VoteController(
+            VoteService voteService,
+            SimpMessagingTemplate messagingTemplate,
+            ActiveSessionRegistry sessionRegistry
+    ) {
         this.voteService = voteService;
         this.messagingTemplate = messagingTemplate;
+        this.sessionRegistry = sessionRegistry;
     }
 
     @MessageMapping("/vote/{sessionId}")
@@ -46,6 +53,12 @@ public class VoteController {
             messagingTemplate.convertAndSend("/topic/vote-events/" + sessionId, event);
             log.debug("Broadcast vote event: session={}, name={}, option={}",
                     sessionId, request.name(), request.option());
+
+            // VoteBroadcastScheduler skips non-live sessions; broadcast directly so counts update before the 30-min window.
+            if (!sessionRegistry.getLiveSessions().contains(sessionId)) {
+                var votes = voteService.getVotes(sessionId);
+                messagingTemplate.convertAndSend("/topic/votes/" + sessionId, votes);
+            }
         }
 
         return response;
