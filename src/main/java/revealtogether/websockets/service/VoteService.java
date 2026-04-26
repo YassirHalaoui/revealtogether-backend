@@ -42,6 +42,8 @@ public class VoteService {
                 return new VoteResponse(false, "Session not found");
             }
             sessionService.loadIntoRedis(firestoreSession.get(), false);
+            log.info("Lazy-loaded session into Redis on first vote: session={}, status={}",
+                    sessionId, firestoreSession.get().status());
             sessionOpt = sessionService.getSession(sessionId);
         }
 

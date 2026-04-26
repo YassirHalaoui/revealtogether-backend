@@ -58,6 +58,7 @@ public class VoteController {
             if (!sessionRegistry.getLiveSessions().contains(sessionId)) {
                 var votes = voteService.getVotes(sessionId);
                 messagingTemplate.convertAndSend("/topic/votes/" + sessionId, votes);
+                log.info("Direct count broadcast (non-live session): session={}, votes={}", sessionId, votes);
             }
         }
 
