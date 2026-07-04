@@ -33,7 +33,7 @@ public class VoteService {
         // Check rate limit
         if (redisRepository.isRateLimited(request.visitorId())) {
             log.debug("Vote rate limited for visitor: {}", request.visitorId());
-            return VoteResponse.rateLimited();
+            return VoteResponse.rateLimited(request.visitorId());
         }
 
         // Check session exists and is active — load from Firestore if not yet in Redis
@@ -42,7 +42,7 @@ public class VoteService {
             var firestoreSession = firebaseService.getSessionFromFirestore(sessionId);
             if (firestoreSession.isEmpty()) {
                 log.warn("Vote attempted on non-existent session: {}", sessionId);
-                return new VoteResponse(false, "Session not found");
+                return VoteResponse.sessionNotFound(request.visitorId());
             }
             sessionService.loadIntoRedis(firestoreSession.get(), false);
             log.info("Lazy-loaded session into Redis on first vote: session={}, status={}",
@@ -53,7 +53,7 @@ public class VoteService {
         var session = sessionOpt.get();
         if (session.status() == SessionStatus.ENDED) {
             log.debug("Vote attempted on ended session: {}", sessionId);
-            return VoteResponse.sessionEnded();
+            return VoteResponse.sessionEnded(request.visitorId());
         }
 
         // Seat enforcement on capped sessions. join() is only advisory UX — a
@@ -64,7 +64,7 @@ public class VoteService {
             var joinResult = seatService.join(sessionId, request.visitorId(), null, null);
             if (joinResult == null || !revealtogether.websockets.dto.JoinResponse.JOINED.equals(joinResult.status())) {
                 log.info("Vote rejected at capacity: session={}, visitor={}", sessionId, request.visitorId());
-                return VoteResponse.atCapacity();
+                return VoteResponse.atCapacity(request.visitorId());
             }
         }
 
@@ -72,7 +72,7 @@ public class VoteService {
         if (redisRepository.hasVoted(sessionId, request.visitorId())) {
             log.debug("Duplicate vote attempt by visitor: {} on session: {}",
                     request.visitorId(), sessionId);
-            return VoteResponse.alreadyVoted();
+            return VoteResponse.alreadyVoted(request.visitorId());
         }
 
         // Record the vote
@@ -90,10 +90,10 @@ public class VoteService {
 
             log.info("Vote recorded: session={}, visitor={}, option={}, name={}",
                     sessionId, request.visitorId(), option, request.name());
-            return VoteResponse.ok();
+            return VoteResponse.ok(request.visitorId());
         }
 
-        return VoteResponse.alreadyVoted();
+        return VoteResponse.alreadyVoted(request.visitorId());
     }
 
     public VoteCount getVotes(String sessionId) {
