@@ -7,9 +7,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.*;
 import revealtogether.websockets.dto.JoinRequest;
 import revealtogether.websockets.dto.JoinResponse;
+import revealtogether.websockets.dto.SeatEvent;
 import revealtogether.websockets.repository.RedisRepository;
 import revealtogether.websockets.service.FirebaseService;
 import revealtogether.websockets.service.SeatService;
@@ -36,17 +38,20 @@ public class SeatController {
     private final SeatService seatService;
     private final FirebaseService firebaseService;
     private final RedisRepository redisRepository;
+    private final SimpMessagingTemplate messagingTemplate;
     private final String internalSecret;
 
     public SeatController(
             SeatService seatService,
             FirebaseService firebaseService,
             RedisRepository redisRepository,
+            SimpMessagingTemplate messagingTemplate,
             @Value("${app.internal-secret:}") String internalSecret
     ) {
         this.seatService = seatService;
         this.firebaseService = firebaseService;
         this.redisRepository = redisRepository;
+        this.messagingTemplate = messagingTemplate;
         // Trim defends against trailing whitespace/newlines picked up when the
         // env var was pasted into Railway/Vercel dashboards.
         this.internalSecret = internalSecret == null ? "" : internalSecret.trim();
@@ -119,6 +124,11 @@ public class SeatController {
 
         JoinResponse stats = seatService.stats(sessionId);
         long joined = stats != null ? stats.joined() : 0;
+
+        // Instant admission: waitlisted guests subscribed to /topic/seats re-check
+        // the moment the gate lifts instead of waiting for their next poll.
+        messagingTemplate.convertAndSend("/topic/seats/" + sessionId,
+                SeatEvent.tierRefreshed(tier, seatLimit, joined));
 
         log.info("Tier refreshed: session={}, tier={}, seatLimit={}, joined={}",
                 sessionId, tier, seatLimit, joined);

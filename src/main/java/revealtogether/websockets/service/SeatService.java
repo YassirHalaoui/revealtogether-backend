@@ -4,11 +4,13 @@ import com.google.firebase.auth.FirebaseAuth;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import revealtogether.websockets.domain.SeatRecord;
 import revealtogether.websockets.domain.Session;
 import revealtogether.websockets.domain.SessionStatus;
 import revealtogether.websockets.dto.JoinResponse;
+import revealtogether.websockets.dto.SeatEvent;
 import revealtogether.websockets.repository.RedisRepository;
 
 import java.nio.charset.StandardCharsets;
@@ -40,6 +42,7 @@ public class SeatService {
     private final RedisRepository redisRepository;
     private final SessionService sessionService;
     private final FirebaseService firebaseService;
+    private final SimpMessagingTemplate messagingTemplate;
     private final double graceFactor;
     private final Duration watchWindow;
 
@@ -47,12 +50,14 @@ public class SeatService {
             RedisRepository redisRepository,
             SessionService sessionService,
             FirebaseService firebaseService,
+            SimpMessagingTemplate messagingTemplate,
             @Value("${app.seats.grace-factor:1.2}") double graceFactor,
             @Value("${app.seats.watch-window-minutes:45}") long watchWindowMinutes
     ) {
         this.redisRepository = redisRepository;
         this.sessionService = sessionService;
         this.firebaseService = firebaseService;
+        this.messagingTemplate = messagingTemplate;
         this.graceFactor = graceFactor;
         this.watchWindow = Duration.ofMinutes(watchWindowMinutes);
     }
@@ -136,7 +141,12 @@ public class SeatService {
             redisRepository.mapEmailToSeat(sessionId, emailHash, visitorId);
         }
         firebaseService.saveSeat(sessionId, new SeatRecord(visitorId, emailHash, true));
-        return JoinResponse.joined(redisRepository.seatCount(sessionId), limit);
+
+        // Real-time seat tick for the host console. Only fresh claims move the
+        // count, so merges/rejoins stay silent. Covers vote-path auto-claims too.
+        long newJoined = redisRepository.seatCount(sessionId);
+        messagingTemplate.convertAndSend("/topic/seats/" + sessionId, SeatEvent.seats(newJoined, limit));
+        return JoinResponse.joined(newJoined, limit);
     }
 
     /**
