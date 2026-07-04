@@ -275,6 +275,13 @@ public class RedisRepository {
         );
     }
 
+    /** True if this visitorId consumed a counting seat (vs email-merged access). */
+    public boolean isCountedSeat(String sessionId, String visitorId) {
+        return Boolean.TRUE.equals(
+                redis.opsForSet().isMember(SEATS_KEY + sessionId, visitorId)
+        );
+    }
+
     public long seatCount(String sessionId) {
         Long count = redis.opsForSet().size(SEATS_KEY + sessionId);
         return count != null ? count : 0;

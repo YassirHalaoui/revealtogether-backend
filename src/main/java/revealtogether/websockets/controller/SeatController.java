@@ -47,7 +47,12 @@ public class SeatController {
         this.seatService = seatService;
         this.firebaseService = firebaseService;
         this.redisRepository = redisRepository;
-        this.internalSecret = internalSecret;
+        // Trim defends against trailing whitespace/newlines picked up when the
+        // env var was pasted into Railway/Vercel dashboards.
+        this.internalSecret = internalSecret == null ? "" : internalSecret.trim();
+        // Length only — never the value. Lets ops confirm the env var landed.
+        log.info("Internal API secret configured: {} (length {})",
+                !this.internalSecret.isBlank(), this.internalSecret.length());
     }
 
     @PostMapping("/session/{sessionId}/join")
@@ -137,15 +142,24 @@ public class SeatController {
     }
 
     private boolean internalSecretMatches(String authHeader) {
-        if (internalSecret == null || internalSecret.isBlank()) {
+        if (internalSecret.isBlank()) {
             // Secret not configured: reject everything rather than fail open on an admin path.
+            log.warn("refresh-tier auth: INTERNAL_API_SECRET not configured on this deployment");
             return false;
         }
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            log.warn("refresh-tier auth: Authorization header {} ",
+                    authHeader == null ? "missing" : "present but not Bearer");
             return false;
         }
-        byte[] provided = authHeader.substring(7).getBytes(StandardCharsets.UTF_8);
+        byte[] provided = authHeader.substring(7).trim().getBytes(StandardCharsets.UTF_8);
         byte[] expected = internalSecret.getBytes(StandardCharsets.UTF_8);
-        return MessageDigest.isEqual(provided, expected);
+        boolean match = MessageDigest.isEqual(provided, expected);
+        if (!match) {
+            // Lengths are safe to log and instantly reveal whitespace/truncation issues.
+            log.warn("refresh-tier auth: secret mismatch (provided length {}, expected length {})",
+                    provided.length, expected.length);
+        }
+        return match;
     }
 }

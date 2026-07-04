@@ -97,12 +97,16 @@ public class SeatService {
             return JoinResponse.joined(joined, limit);
         }
 
-        // Already allowed on this device — idempotent.
+        String emailHash = hashEmail(email);
+
+        // Already allowed on this device — idempotent. If the guest provides an
+        // email on a rejoin, bind it to their seat NOW: the "enter the same email
+        // on your other device and your seat comes back" flow depends on a seated
+        // visitor being able to attach their email after the original claim.
         if (redisRepository.hasSeatAccess(sessionId, visitorId)) {
+            bindEmailIfUnbound(sessionId, visitorId, emailHash);
             return JoinResponse.joined(joined, limit);
         }
-
-        String emailHash = hashEmail(email);
 
         // Email merge: same person on a second device reuses their seat.
         if (emailHash != null) {
@@ -141,6 +145,17 @@ public class SeatService {
      */
     public boolean canParticipate(String sessionId, String visitorId) {
         return redisRepository.hasSeatAccess(sessionId, visitorId);
+    }
+
+    /** First-bind-wins: attaches an email to an already-seated visitor's seat. */
+    private void bindEmailIfUnbound(String sessionId, String visitorId, String emailHash) {
+        if (emailHash == null || redisRepository.getSeatOwnerByEmailHash(sessionId, emailHash) != null) {
+            return;
+        }
+        redisRepository.mapEmailToSeat(sessionId, emailHash, visitorId);
+        boolean countsAsSeat = redisRepository.isCountedSeat(sessionId, visitorId);
+        firebaseService.saveSeat(sessionId, new SeatRecord(visitorId, emailHash, countsAsSeat));
+        log.debug("Email bound to existing seat: session={}, visitor={}", sessionId, visitorId);
     }
 
     /**
