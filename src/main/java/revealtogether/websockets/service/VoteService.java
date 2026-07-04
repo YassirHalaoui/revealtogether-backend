@@ -19,11 +19,14 @@ public class VoteService {
     private final RedisRepository redisRepository;
     private final SessionService sessionService;
     private final FirebaseService firebaseService;
+    private final SeatService seatService;
 
-    public VoteService(RedisRepository redisRepository, SessionService sessionService, FirebaseService firebaseService) {
+    public VoteService(RedisRepository redisRepository, SessionService sessionService,
+                       FirebaseService firebaseService, SeatService seatService) {
         this.redisRepository = redisRepository;
         this.sessionService = sessionService;
         this.firebaseService = firebaseService;
+        this.seatService = seatService;
     }
 
     public VoteResponse castVote(String sessionId, VoteRequest request) {
@@ -51,6 +54,18 @@ public class VoteService {
         if (session.status() == SessionStatus.ENDED) {
             log.debug("Vote attempted on ended session: {}", sessionId);
             return VoteResponse.sessionEnded();
+        }
+
+        // Seat enforcement on capped sessions. join() is only advisory UX — a
+        // scripted client can publish votes straight to STOMP, so the vote path
+        // is the real gate. Auto-claims a seat if capacity remains (covers
+        // clients whose join call failed open).
+        if (session.isCapped() && !seatService.canParticipate(sessionId, request.visitorId())) {
+            var joinResult = seatService.join(sessionId, request.visitorId(), null, null);
+            if (joinResult == null || !revealtogether.websockets.dto.JoinResponse.JOINED.equals(joinResult.status())) {
+                log.info("Vote rejected at capacity: session={}, visitor={}", sessionId, request.visitorId());
+                return VoteResponse.atCapacity();
+            }
         }
 
         // Check if already voted

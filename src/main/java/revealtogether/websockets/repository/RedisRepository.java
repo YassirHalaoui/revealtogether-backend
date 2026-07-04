@@ -26,6 +26,12 @@ public class RedisRepository {
     private static final String DIRTY_KEY = "dirty:";
     private static final String RATELIMIT_KEY = "ratelimit:";
     private static final String ACTIVE_SESSIONS_KEY = "active_sessions";
+    // Tiered-pricing seat model. seats: = seat-consuming visitorIds (SCARD = joined count).
+    // seataccess: = ALL participation-allowed visitorIds (seat owners + email-merged devices).
+    // emailseat: = sha256(email) -> seat-owning visitorId, for cross-device merge.
+    private static final String SEATS_KEY = "seats:";
+    private static final String SEAT_ACCESS_KEY = "seataccess:";
+    private static final String EMAIL_SEAT_KEY = "emailseat:";
 
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
@@ -60,6 +66,8 @@ public class RedisRepository {
         fields.put("createdAt", session.createdAt().toString());
         if (session.motherName() != null) fields.put("motherName", session.motherName());
         if (session.fatherName() != null) fields.put("fatherName", session.fatherName());
+        if (session.tier() != null) fields.put("tier", session.tier());
+        if (session.seatLimit() != null) fields.put("seatLimit", String.valueOf(session.seatLimit()));
 
         redis.opsForHash().putAll(key, fields);
         redis.expire(key, sessionTtl);
@@ -75,6 +83,16 @@ public class RedisRepository {
             return Optional.empty();
         }
 
+        Integer seatLimit = null;
+        Object rawSeatLimit = fields.get("seatLimit");
+        if (rawSeatLimit != null) {
+            try {
+                seatLimit = Integer.parseInt(rawSeatLimit.toString());
+            } catch (NumberFormatException e) {
+                log.warn("Invalid seatLimit in Redis for session {}: {}", sessionId, rawSeatLimit);
+            }
+        }
+
         return Optional.of(new Session(
                 (String) fields.get("sessionId"),
                 (String) fields.get("ownerId"),
@@ -83,13 +101,36 @@ public class RedisRepository {
                 Instant.parse((String) fields.get("revealTime")),
                 Instant.parse((String) fields.get("createdAt")),
                 (String) fields.get("motherName"),
-                (String) fields.get("fatherName")
+                (String) fields.get("fatherName"),
+                (String) fields.get("tier"),
+                seatLimit
         ));
     }
 
     public void updateSessionStatus(String sessionId, SessionStatus status) {
         String key = SESSION_KEY + sessionId;
         redis.opsForHash().put(key, "status", status.getValue());
+    }
+
+    /**
+     * Updates the cached tier/seatLimit after an upgrade (called by refresh-tier).
+     * No-op if the session isn't cached — the next lazy load reads Firestore anyway.
+     */
+    public void updateSessionTier(String sessionId, String tier, Integer seatLimit) {
+        String key = SESSION_KEY + sessionId;
+        if (!Boolean.TRUE.equals(redis.hasKey(key))) {
+            return;
+        }
+        if (tier != null) {
+            redis.opsForHash().put(key, "tier", tier);
+        } else {
+            redis.opsForHash().delete(key, "tier");
+        }
+        if (seatLimit != null) {
+            redis.opsForHash().put(key, "seatLimit", String.valueOf(seatLimit));
+        } else {
+            redis.opsForHash().delete(key, "seatLimit");
+        }
     }
 
     public boolean sessionExists(String sessionId) {
@@ -208,6 +249,63 @@ public class RedisRepository {
         return records;
     }
 
+    // Seat operations (tiered pricing)
+
+    /**
+     * Claims a fresh seat: the visitorId is added to both the counting set and
+     * the access set. NOT atomic with the capacity check in SeatService — the
+     * grace buffer (+20%) absorbs the tiny concurrent-join race by design.
+     */
+    public void claimSeat(String sessionId, String visitorId) {
+        redis.opsForSet().add(SEATS_KEY + sessionId, visitorId);
+        redis.opsForSet().add(SEAT_ACCESS_KEY + sessionId, visitorId);
+        redis.expire(SEATS_KEY + sessionId, sessionTtl);
+        redis.expire(SEAT_ACCESS_KEY + sessionId, sessionTtl);
+    }
+
+    /** Grants participation without consuming a seat (email-merged extra device). */
+    public void grantSeatAccess(String sessionId, String visitorId) {
+        redis.opsForSet().add(SEAT_ACCESS_KEY + sessionId, visitorId);
+        redis.expire(SEAT_ACCESS_KEY + sessionId, sessionTtl);
+    }
+
+    public boolean hasSeatAccess(String sessionId, String visitorId) {
+        return Boolean.TRUE.equals(
+                redis.opsForSet().isMember(SEAT_ACCESS_KEY + sessionId, visitorId)
+        );
+    }
+
+    public long seatCount(String sessionId) {
+        Long count = redis.opsForSet().size(SEATS_KEY + sessionId);
+        return count != null ? count : 0;
+    }
+
+    public String getSeatOwnerByEmailHash(String sessionId, String emailHash) {
+        Object owner = redis.opsForHash().get(EMAIL_SEAT_KEY + sessionId, emailHash);
+        return owner != null ? owner.toString() : null;
+    }
+
+    public void mapEmailToSeat(String sessionId, String emailHash, String visitorId) {
+        redis.opsForHash().put(EMAIL_SEAT_KEY + sessionId, emailHash, visitorId);
+        redis.expire(EMAIL_SEAT_KEY + sessionId, sessionTtl);
+    }
+
+    /** Rebuilds all seat structures from Firestore records during lazy reload. */
+    public void restoreSeats(String sessionId, List<SeatRecord> records) {
+        for (SeatRecord record : records) {
+            if (record.countsAsSeat()) {
+                redis.opsForSet().add(SEATS_KEY + sessionId, record.visitorId());
+                if (record.emailHash() != null) {
+                    redis.opsForHash().put(EMAIL_SEAT_KEY + sessionId, record.emailHash(), record.visitorId());
+                }
+            }
+            redis.opsForSet().add(SEAT_ACCESS_KEY + sessionId, record.visitorId());
+        }
+        redis.expire(SEATS_KEY + sessionId, sessionTtl);
+        redis.expire(SEAT_ACCESS_KEY + sessionId, sessionTtl);
+        redis.expire(EMAIL_SEAT_KEY + sessionId, sessionTtl);
+    }
+
     // Chat operations
 
     public void addChatMessage(String sessionId, ChatMessage message) {
@@ -294,6 +392,9 @@ public class RedisRepository {
         redis.delete(VOTE_RECORDS_KEY + sessionId);
         redis.delete(CHAT_KEY + sessionId);
         redis.delete(DIRTY_KEY + sessionId);
+        redis.delete(SEATS_KEY + sessionId);
+        redis.delete(SEAT_ACCESS_KEY + sessionId);
+        redis.delete(EMAIL_SEAT_KEY + sessionId);
         removeActiveSession(sessionId);
         log.info("Deleted all Redis keys for session {}", sessionId);
     }
@@ -304,6 +405,9 @@ public class RedisRepository {
         redis.expire(VOTERS_KEY + sessionId, postRevealTtl);
         redis.expire(VOTE_RECORDS_KEY + sessionId, postRevealTtl);
         redis.expire(CHAT_KEY + sessionId, postRevealTtl);
+        redis.expire(SEATS_KEY + sessionId, postRevealTtl);
+        redis.expire(SEAT_ACCESS_KEY + sessionId, postRevealTtl);
+        redis.expire(EMAIL_SEAT_KEY + sessionId, postRevealTtl);
     }
 
     private long parseLong(Object value) {

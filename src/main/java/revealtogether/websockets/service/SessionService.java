@@ -43,7 +43,9 @@ public class SessionService {
                 request.revealTime(),
                 Instant.now(),
                 request.motherName(),
-                request.fatherName()
+                request.fatherName(),
+                request.tier(),
+                request.seatLimit()
         );
 
         // Do NOT write to Redis on creation — Firestore is the source of truth for waiting sessions.
@@ -83,6 +85,17 @@ public class SessionService {
             redisRepository.restoreVoteRecords(session.sessionId(), existingVotes);
             log.info("Session {} restored {} votes from Firestore (boy={}, girl={})",
                     session.sessionId(), existingVotes.size(), boy, girl);
+        }
+
+        // Tiered sessions: restore seat state so capacity checks survive Redis expiry.
+        // Legacy sessions (no tier) never track seats — zero extra cost.
+        if (session.isTiered()) {
+            var seatRecords = firebaseService.getSeatRecords(session.sessionId());
+            if (!seatRecords.isEmpty()) {
+                redisRepository.restoreSeats(session.sessionId(), seatRecords);
+                log.info("Session {} restored {} seat records from Firestore",
+                        session.sessionId(), seatRecords.size());
+            }
         }
 
         if (forceLife) {

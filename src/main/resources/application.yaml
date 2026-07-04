@@ -34,6 +34,15 @@ app:
       post-reveal-hours: 1
   broadcast:
     interval-ms: 500
+  # Tiered-pricing seat gate. Grace factor pads the marketing limit so
+  # concurrent-join races and accidental double-counts never become support
+  # tickets. Watch window: over-cap guests get watch_only (not a closed door)
+  # this close to the reveal moment.
+  seats:
+    grace-factor: 1.2
+    watch-window-minutes: 45
+  # Shared secret for Vercel -> Spring server-to-server calls (refresh-tier).
+  internal-secret: ${INTERNAL_API_SECRET:}
   chat:
     max-messages: 500
     max-length: 280

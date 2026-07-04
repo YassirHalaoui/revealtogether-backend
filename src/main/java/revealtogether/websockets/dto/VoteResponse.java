@@ -19,4 +19,8 @@ public record VoteResponse(
     public static VoteResponse rateLimited() {
         return new VoteResponse(false, "Rate limited, try again later");
     }
+
+    public static VoteResponse atCapacity() {
+        return new VoteResponse(false, "At capacity");
+    }
 }

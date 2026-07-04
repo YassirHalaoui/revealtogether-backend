@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import revealtogether.websockets.domain.ChatMessage;
+import revealtogether.websockets.domain.SeatRecord;
 import revealtogether.websockets.domain.Session;
 import revealtogether.websockets.domain.SessionStatus;
 import revealtogether.websockets.domain.VoteCount;
@@ -51,6 +52,8 @@ public class FirebaseService {
         data.put("createdAt", session.createdAt().toString());
         if (session.motherName() != null) data.put("motherName", session.motherName());
         if (session.fatherName() != null) data.put("fatherName", session.fatherName());
+        if (session.tier() != null) data.put("tier", session.tier());
+        if (session.seatLimit() != null) data.put("seatLimit", session.seatLimit());
         if (theme != null) data.put("theme", theme);
         data.put("paymentStatus", paymentStatus != null ? paymentStatus : "pending");
 
@@ -85,6 +88,8 @@ public class FirebaseService {
         data.put("updatedAt", FieldValue.serverTimestamp());
         if (session.motherName() != null) data.put("motherName", session.motherName());
         if (session.fatherName() != null) data.put("fatherName", session.fatherName());
+        if (session.tier() != null) data.put("tier", session.tier());
+        if (session.seatLimit() != null) data.put("seatLimit", session.seatLimit());
         if (theme != null) data.put("theme", theme);
         data.put("paymentStatus", paymentStatus != null ? paymentStatus : "pending");
 
@@ -242,7 +247,9 @@ public class FirebaseService {
                             Instant.parse(toInstantString(data.get("revealTime"))),
                             Instant.parse(toInstantString(data.get("createdAt"))),
                             (String) data.get("motherName"),
-                            (String) data.get("fatherName")
+                            (String) data.get("fatherName"),
+                            (String) data.get("tier"),
+                            toNullableInt(data.get("seatLimit"))
                     ));
                 } catch (Exception e) {
                     log.warn("Skipping malformed session doc {}: {}", doc.getId(), e.getMessage());
@@ -298,7 +305,9 @@ public class FirebaseService {
                     Instant.parse(revealTime),
                     Instant.parse(createdAt),
                     motherName,
-                    fatherName
+                    fatherName,
+                    (String) data.get("tier"),
+                    toNullableInt(data.get("seatLimit"))
             );
             log.info("Session {} reconstructed from Firestore (Redis expired)", sessionId);
             return Optional.of(session);
@@ -466,6 +475,91 @@ public class FirebaseService {
         if (value instanceof String s) return s;
         if (value instanceof com.google.cloud.Timestamp ts) return ts.toDate().toInstant().toString();
         return value.toString();
+    }
+
+    /** Firestore stores integers as Long; tolerate String too. Null-safe. */
+    public static Integer toNullableInt(Object value) {
+        if (value == null) return null;
+        if (value instanceof Number n) return n.intValue();
+        try {
+            return Integer.parseInt(value.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Persists a participation seat to reveals/{sessionId}/seats/{visitorId}.
+     * Doc ID = visitorId, so repeated joins upsert instead of duplicating.
+     * Fire-and-forget, same pattern as saveVote. Only the email HASH is stored.
+     */
+    public void saveSeat(String sessionId, SeatRecord record) {
+        if (firestore == null) {
+            log.warn("Firebase not configured. Skipping seat save.");
+            return;
+        }
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("visitorId", record.visitorId());
+        data.put("countsAsSeat", record.countsAsSeat());
+        data.put("joinedAt", Instant.now().toString());
+        if (record.emailHash() != null) data.put("emailHash", record.emailHash());
+
+        var future = firestore.collection(REVEALS_COLLECTION)
+                .document(sessionId)
+                .collection("seats")
+                .document(record.visitorId())
+                .set(data, SetOptions.merge());
+
+        future.addListener(() -> {
+            try {
+                future.get();
+                log.debug("Seat saved to Firestore: session={}, visitor={}", sessionId, record.visitorId());
+            } catch (Exception e) {
+                log.error("Failed to save seat to Firestore: session={}, visitor={}, error={}",
+                        sessionId, record.visitorId(), e.getMessage());
+            }
+        }, Runnable::run);
+    }
+
+    /**
+     * Reads all seat records from reveals/{sessionId}/seats.
+     * Used to restore Redis seat state on lazy reload (mirrors getVoteRecords).
+     */
+    public List<SeatRecord> getSeatRecords(String sessionId) {
+        if (firestore == null) {
+            return List.of();
+        }
+
+        try {
+            List<QueryDocumentSnapshot> docs = firestore.collection(REVEALS_COLLECTION)
+                    .document(sessionId)
+                    .collection("seats")
+                    .get()
+                    .get()
+                    .getDocuments();
+
+            List<SeatRecord> records = new ArrayList<>();
+            for (QueryDocumentSnapshot doc : docs) {
+                try {
+                    String visitorId = doc.getString("visitorId");
+                    if (visitorId == null) visitorId = doc.getId();
+                    Boolean countsAsSeat = doc.getBoolean("countsAsSeat");
+                    records.add(new SeatRecord(
+                            visitorId,
+                            doc.getString("emailHash"),
+                            countsAsSeat == null || countsAsSeat
+                    ));
+                } catch (Exception e) {
+                    log.warn("Skipping malformed seat doc {}: {}", doc.getId(), e.getMessage());
+                }
+            }
+            return records;
+        } catch (InterruptedException | ExecutionException e) {
+            log.error("Failed to fetch seat records from Firestore for session {}", sessionId, e);
+            Thread.currentThread().interrupt();
+            return List.of();
+        }
     }
 
     public Map<String, Object> getRevealData(String sessionId) {
