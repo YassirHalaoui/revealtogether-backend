@@ -59,6 +59,66 @@ class SeatServiceTest extends BaseIntegrationTest {
     }
 
     @Test
+    @DisplayName("REGRESSION: legacy uncapped reveal — anonymous guests join AND vote freely, stats never say 0-limit")
+    void legacyAnonymousGuestsJoinAndVote() {
+        Session session = seedSession(null, null, FAR_FUTURE);
+        redisRepository.initializeVotes(session.sessionId());
+
+        // Many anonymous guests join — never gated
+        for (int i = 0; i < 15; i++) {
+            assertThat(seatService.join(session.sessionId(), vid(), null, null).status())
+                    .isEqualTo(JoinResponse.JOINED);
+        }
+
+        // Anonymous guest votes without ever calling join — no enforcement on legacy
+        String guest = vid();
+        VoteResponse vote = voteService.castVote(session.sessionId(),
+                new VoteRequest("boy", guest, "Anon"));
+        assertThat(vote.success()).isTrue();
+
+        // Stats: limit must be null (never zero) so no upgrade offer can render
+        JoinResponse stats = seatService.stats(session.sessionId());
+        assertThat(stats.limit()).isNull();
+    }
+
+    @Test
+    @DisplayName("REGRESSION: stored seatLimit 0 normalizes to uncapped — zero NEVER means zero capacity")
+    void storedZeroSeatLimitIsUncapped() {
+        // Session record normalizes 0 -> null at construction, so every
+        // hydration path (Redis, Firestore, create) is covered by this.
+        Session session = seedSession("celebration", 0, FAR_FUTURE);
+        assertThat(session.seatLimit()).isNull();
+        assertThat(session.isCapped()).isFalse();
+        redisRepository.initializeVotes(session.sessionId());
+
+        JoinResponse join = seatService.join(session.sessionId(), vid(), null, null);
+        assertThat(join.status()).isEqualTo(JoinResponse.JOINED);
+        assertThat(join.limit()).isNull();
+
+        VoteResponse vote = voteService.castVote(session.sessionId(),
+                new VoteRequest("girl", vid(), "Guest"));
+        assertThat(vote.success()).isTrue();
+    }
+
+    @Test
+    @DisplayName("Tier limits echo exactly: intimate 10, celebration 150, grand null-uncapped")
+    void tierLimitsEchoExactly() {
+        assertThat(seatService.join(seedSession("intimate", 10, FAR_FUTURE).sessionId(), vid(), null, null).limit())
+                .isEqualTo(10);
+        assertThat(seatService.join(seedSession("celebration", 150, FAR_FUTURE).sessionId(), vid(), null, null).limit())
+                .isEqualTo(150);
+        Session grand = seedSession("grand", null, FAR_FUTURE);
+        JoinResponse g = seatService.join(grand.sessionId(), vid(), null, null);
+        assertThat(g.limit()).isNull();
+        assertThat(g.status()).isEqualTo(JoinResponse.JOINED);
+        // Grand is tiered (tracked for stats) but never gated
+        for (int i = 0; i < 20; i++) {
+            assertThat(seatService.join(grand.sessionId(), vid(), null, null).status())
+                    .isEqualTo(JoinResponse.JOINED);
+        }
+    }
+
+    @Test
     @DisplayName("Capped session: fresh claims admitted up to grace gate, then at_capacity")
     void capacityGateWithGraceBuffer() {
         Session session = seedSession("celebration", 2, FAR_FUTURE); // gate = ceil(2*1.2) = 3

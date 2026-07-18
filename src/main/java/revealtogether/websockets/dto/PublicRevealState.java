@@ -64,6 +64,9 @@ public record PublicRevealState(
         );
 
         Integer seatLimit = FirebaseService.toNullableInt(doc.get("seatLimit"));
+        if (seatLimit != null && seatLimit <= 0) {
+            seatLimit = null; // stored zero = uncapped, never zero capacity
+        }
         boolean votingOpen = !ended;
         Participation participation = new Participation(
                 seatLimit, joined, votingOpen && gateOpen, votingOpen);

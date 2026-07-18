@@ -14,6 +14,16 @@ public record Session(
         String tier,
         Integer seatLimit
 ) {
+    // Central seat-limit normalization: zero or negative NEVER means "zero
+    // capacity" — it normalizes to null (uncapped). Runs on every construction
+    // path (Redis hydration, Firestore reconstruction, creation), so a stored
+    // seatLimit: 0 can never gate joins or votes anywhere downstream.
+    public Session {
+        if (seatLimit != null && seatLimit <= 0) {
+            seatLimit = null;
+        }
+    }
+
     /** Legacy 8-arg constructor: pre-tier sessions (tier/seatLimit = null = uncapped). */
     public Session(String sessionId, String ownerId, VoteOption gender, SessionStatus status,
                    Instant revealTime, Instant createdAt, String motherName, String fatherName) {

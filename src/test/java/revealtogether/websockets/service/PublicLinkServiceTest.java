@@ -173,6 +173,16 @@ class PublicLinkServiceTest {
     }
 
     @Test
+    @DisplayName("Doc with seatLimit 0 -> participation.seatLimit omitted (uncapped, never zero)")
+    void zeroSeatLimitOmittedInPublicState() throws Exception {
+        Map<String, Object> doc = docWithSecrets("waiting");
+        doc.put("seatLimit", 0L);
+        PublicRevealState state = PublicRevealState.from("sess-1", doc, 5, true, Instant.now());
+        assertThat(state.participation().seatLimit()).isNull();
+        assertThat(JSON.writeValueAsString(state)).doesNotContain("seatLimit");
+    }
+
+    @Test
     @DisplayName("Docs with missing revealTime/names never throw; fields null out")
     void sparseAncientDocNeverThrows() {
         Map<String, Object> sparse = new HashMap<>();

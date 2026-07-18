@@ -96,10 +96,15 @@ public class SeatController {
         if (stats == null) {
             return ResponseEntity.notFound().build();
         }
-        return ResponseEntity.ok(Map.of(
-                "joined", stats.joined(),
-                "limit", stats.limit() != null ? stats.limit() : 0
-        ));
+        // Uncapped = limit OMITTED (locked wire contract). Map.of() rejects
+        // nulls and the old null->0 coercion here made legacy reveals render
+        // as "0/0 seats" with a bogus upgrade offer — never coerce to zero.
+        Map<String, Object> body = new HashMap<>();
+        body.put("joined", stats.joined());
+        if (stats.limit() != null) {
+            body.put("limit", stats.limit());
+        }
+        return ResponseEntity.ok(body);
     }
 
     @PostMapping("/admin/sessions/{sessionId}/refresh-tier")
@@ -119,6 +124,9 @@ public class SeatController {
 
         String tier = (String) reveal.get("tier");
         Integer seatLimit = revealtogether.websockets.service.FirebaseService.toNullableInt(reveal.get("seatLimit"));
+        if (seatLimit != null && seatLimit <= 0) {
+            seatLimit = null; // stored zero = uncapped, never zero capacity
+        }
 
         redisRepository.updateSessionTier(sessionId, tier, seatLimit);
 
