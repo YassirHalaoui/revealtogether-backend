@@ -605,6 +605,40 @@ public class FirebaseService {
         }
     }
 
+    /**
+     * Resolves a session UUID to its Firestore doc ID for legacy links.
+     * Backend-created reveals: docId == sessionId (direct hit, no query).
+     * Ancient client-created docs may have a random docId with the UUID in a
+     * sessionId or backendSessionId field — fall back to field queries.
+     */
+    public String findRevealDocIdForSession(String sessionUuid) {
+        if (firestore == null) {
+            return null;
+        }
+        try {
+            var direct = firestore.collection(REVEALS_COLLECTION).document(sessionUuid).get().get();
+            if (direct.exists()) {
+                return sessionUuid;
+            }
+            for (String field : new String[]{"sessionId", "backendSessionId"}) {
+                var docs = firestore.collection(REVEALS_COLLECTION)
+                        .whereEqualTo(field, sessionUuid)
+                        .limit(1)
+                        .get()
+                        .get()
+                        .getDocuments();
+                if (!docs.isEmpty()) {
+                    return docs.get(0).getId();
+                }
+            }
+            return null;
+        } catch (InterruptedException | ExecutionException e) {
+            log.error("Failed legacy session lookup", e);
+            Thread.currentThread().interrupt();
+            return null;
+        }
+    }
+
     /** Exact-match lookup by token hash. Returns null when nothing matches (non-enumerating). */
     public String findRevealIdByTokenHash(String tokenHash) {
         if (firestore == null) {

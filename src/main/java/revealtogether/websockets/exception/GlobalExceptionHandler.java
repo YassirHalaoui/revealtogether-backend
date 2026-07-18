@@ -38,6 +38,26 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(response);
     }
 
+    /**
+     * Malformed request bodies get a dedicated handler so the exception —
+     * whose message can embed fragments of the raw body — is NEVER logged.
+     * Legacy reveal payloads contain the encoded gender; body content must
+     * not reach logs under any error path.
+     */
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, Object>> handleUnreadableBody(
+            org.springframework.http.converter.HttpMessageNotReadableException ex) {
+        log.warn("Rejected malformed request body ({})", ex.getClass().getSimpleName());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("timestamp", Instant.now());
+        response.put("status", HttpStatus.BAD_REQUEST.value());
+        response.put("error", "Bad Request");
+        response.put("message", "Malformed request body");
+
+        return ResponseEntity.badRequest().body(response);
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalArgument(IllegalArgumentException ex) {
         log.warn("Invalid argument: {}", ex.getMessage());

@@ -186,7 +186,14 @@ public class PublicRevealController {
             return error(HttpStatus.NOT_FOUND, "reveal_not_found");
         }
 
-        PublicLinkService.ProvisionResult result = publicLinkService.provision(bsid);
+        // Backend-created reveals: docId == bsid. Ancient client-created docs
+        // may hold the UUID in sessionId/backendSessionId fields instead.
+        String docId = firebaseService.findRevealDocIdForSession(bsid);
+        if (docId == null) {
+            return error(HttpStatus.NOT_FOUND, "reveal_not_found");
+        }
+
+        PublicLinkService.ProvisionResult result = publicLinkService.provision(docId);
         if (result == null) {
             return error(HttpStatus.NOT_FOUND, "reveal_not_found");
         }
