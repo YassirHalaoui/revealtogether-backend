@@ -113,6 +113,19 @@ public class RedisRepository {
     }
 
     /**
+     * Syncs a changed reveal time into the cached session so the scheduler's
+     * release boundary moves immediately (it reads revealTime from this hash
+     * for live sessions). No-op if the session isn't cached — the lazy load
+     * reads the fresh Firestore value anyway.
+     */
+    public void updateSessionRevealTime(String sessionId, Instant revealTime) {
+        String key = SESSION_KEY + sessionId;
+        if (Boolean.TRUE.equals(redis.hasKey(key))) {
+            redis.opsForHash().put(key, "revealTime", revealTime.toString());
+        }
+    }
+
+    /**
      * Updates the cached tier/seatLimit after an upgrade (called by refresh-tier).
      * No-op if the session isn't cached — the next lazy load reads Firestore anyway.
      */

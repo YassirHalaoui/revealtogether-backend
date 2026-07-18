@@ -64,6 +64,19 @@ public class PublicLinkService {
         String token = generateToken();
         String hash = sha256Hex(token);
         firebaseService.savePublicLink(revealId, token, hash, 1, false);
+
+        // Concurrent-provision race (webhook + create flow can call at the
+        // same instant): re-read the doc and defer to whichever write won,
+        // evicting our hash if we lost, so only ONE active link ever exists.
+        Map<String, Object> after = firebaseService.getRevealData(revealId);
+        String winner = after != null ? (String) after.get("publicToken") : token;
+        if (winner != null && !winner.equals(token)) {
+            redisRepository.evictPublicToken(hash);
+            int version = after != null ? intOrDefault(after.get("tokenVersion"), 1) : 1;
+            log.info("Public link provision race: deferring to winner, reveal={}", revealId);
+            return new ProvisionResult(revealId, winner, version, false);
+        }
+
         redisRepository.cachePublicToken(hash, revealId);
         log.info("Public link provisioned: reveal={}, tokenFp={}", revealId, fingerprint(hash));
         return new ProvisionResult(revealId, token, 1, true);

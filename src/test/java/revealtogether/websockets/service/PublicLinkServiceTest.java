@@ -23,9 +23,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("Opaque public link security")
 class PublicLinkServiceTest {
 
+    // Mirrors the app's Jackson config (application.yaml sets
+    // default-property-inclusion: non_null) so assertions test the real wire
+    // format: null fields are OMITTED, never serialized as null.
     private static final ObjectMapper JSON = new ObjectMapper()
             .findAndRegisterModules()
-            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+            .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL);
 
     // ---------- Token shape ----------
 
@@ -124,6 +128,59 @@ class PublicLinkServiceTest {
         assertThat(state.participation().joined()).isEqualTo(18);
         assertThat(state.participation().votingOpen()).isTrue();
         assertThat(state.sessionId()).isEqualTo("sess-1");
+    }
+
+    // ---------- Edge cases (rollout review) ----------
+
+    @Test
+    @DisplayName("Ancient isRevealed=true docs (no status=ended) release the result")
+    void ancientIsRevealedDocsAreRevealed() {
+        Map<String, Object> doc = docWithSecrets("waiting");
+        doc.put("isRevealed", Boolean.TRUE);
+        doc.remove("endedAt");
+        doc.put("revealedAt", "2025-03-01T18:00:00Z"); // ancient field name
+
+        PublicRevealState state = PublicRevealState.from("sess-1", doc, 0, true, Instant.now());
+        assertThat(state.status()).isEqualTo("revealed");
+        assertThat(state.result()).isNotNull();
+        assertThat(state.result().gender()).isEqualTo("boy");
+        assertThat(state.result().revealedAt()).isEqualTo(Instant.parse("2025-03-01T18:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("isRevealed=false does NOT release; payload stays gender-clean")
+    void isRevealedFalseStaysPendingAndClean() throws Exception {
+        Map<String, Object> doc = docWithSecrets("waiting");
+        doc.put("isRevealed", Boolean.FALSE);
+        PublicRevealState state = PublicRevealState.from("sess-1", doc, 0, true, Instant.now());
+        assertThat(state.status()).isEqualTo("pending");
+        assertThat(JSON.writeValueAsString(state)).doesNotContain("boy").doesNotContain("gender");
+    }
+
+    @Test
+    @DisplayName("Unpaid reveals carry paymentPending=true; paid omit the field")
+    void paymentPendingFlag() throws Exception {
+        Map<String, Object> unpaid = docWithSecrets("waiting");
+        unpaid.put("paymentStatus", "pending");
+        PublicRevealState state = PublicRevealState.from("sess-1", unpaid, 0, true, Instant.now());
+        assertThat(state.paymentPending()).isTrue();
+        // still gender-clean
+        assertThat(JSON.writeValueAsString(state)).doesNotContain("boy");
+
+        PublicRevealState paid = PublicRevealState.from("sess-1", docWithSecrets("waiting"), 0, true, Instant.now());
+        assertThat(paid.paymentPending()).isNull();
+        assertThat(JSON.writeValueAsString(paid)).doesNotContain("paymentPending");
+    }
+
+    @Test
+    @DisplayName("Docs with missing revealTime/names never throw; fields null out")
+    void sparseAncientDocNeverThrows() {
+        Map<String, Object> sparse = new HashMap<>();
+        sparse.put("gender", "girl"); // still must not leak
+        PublicRevealState state = PublicRevealState.from("sess-1", sparse, 0, true, Instant.now());
+        assertThat(state.status()).isEqualTo("pending");
+        assertThat(state.revealAt()).isNull();
+        assertThat(state.result()).isNull();
     }
 
     // ---------- Release frame (the realtime adjustment) ----------

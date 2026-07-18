@@ -20,6 +20,7 @@ public record PublicRevealState(
         Instant serverNow,
         Instant revealAt,
         String sessionId,
+        Boolean paymentPending,
         Display display,
         Participation participation,
         Result result
@@ -40,8 +41,17 @@ public record PublicRevealState(
     public static PublicRevealState from(String sessionId, Map<String, Object> doc,
                                          long joined, boolean gateOpen, Instant serverNow) {
         String docStatus = str(doc.get("status"));
-        boolean ended = "ended".equals(docStatus);
+        // Ancient client-created reveals were marked with isRevealed=true
+        // instead of status="ended" — without this they'd stay "pending"
+        // forever after a legacy-resolve. Both signals were set at reveal
+        // time, so releasing the result on either preserves server authority.
+        boolean ended = "ended".equals(docStatus)
+                || Boolean.TRUE.equals(doc.get("isRevealed"));
         String status = ended ? "revealed" : "live".equals(docStatus) ? "live" : "pending";
+
+        // Post rules-lockdown the frontend can no longer read paymentStatus
+        // client-side; this flag is its only gate signal. Omitted when paid.
+        Boolean paymentPending = "pending".equals(str(doc.get("paymentStatus"))) ? Boolean.TRUE : null;
 
         Instant revealAt = parseInstant(doc.get("revealTime"));
 
@@ -63,11 +73,16 @@ public record PublicRevealState(
         if (ended) {
             String gender = str(doc.get("gender"));
             if (gender != null) {
-                result = new Result(gender, parseInstant(doc.get("endedAt")));
+                Instant revealedAt = parseInstant(doc.get("endedAt"));
+                if (revealedAt == null) {
+                    revealedAt = parseInstant(doc.get("revealedAt")); // ancient docs
+                }
+                result = new Result(gender, revealedAt);
             }
         }
 
-        return new PublicRevealState(status, serverNow, revealAt, sessionId, display, participation, result);
+        return new PublicRevealState(status, serverNow, revealAt, sessionId, paymentPending,
+                display, participation, result);
     }
 
     private static String str(Object value) {

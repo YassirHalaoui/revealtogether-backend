@@ -30,17 +30,23 @@ public class RevealController {
     private final SessionService sessionService;
     private final FirebaseService firebaseService;
     private final SimpMessagingTemplate messagingTemplate;
+    private final revealtogether.websockets.repository.RedisRepository redisRepository;
+    private final revealtogether.websockets.service.ActiveSessionRegistry sessionRegistry;
     private final String baseUrl;
 
     public RevealController(
             SessionService sessionService,
             FirebaseService firebaseService,
             SimpMessagingTemplate messagingTemplate,
+            revealtogether.websockets.repository.RedisRepository redisRepository,
+            revealtogether.websockets.service.ActiveSessionRegistry sessionRegistry,
             @Value("${app.base-url:https://revealtogether.com}") String baseUrl
     ) {
         this.sessionService = sessionService;
         this.firebaseService = firebaseService;
         this.messagingTemplate = messagingTemplate;
+        this.redisRepository = redisRepository;
+        this.sessionRegistry = sessionRegistry;
         this.baseUrl = baseUrl;
     }
 
@@ -100,6 +106,7 @@ public class RevealController {
                 // Update pending reveal — preserve original createdAt by not re-saving session object
                 Session session = sessionService.createSessionWithId(request, request.existingRevealId());
                 firebaseService.updateSession(session, request.theme(), request.paymentStatus(), request.message(), request.locale());
+                syncRevealTimeBoundary(request.existingRevealId(), request.revealTime());
                 return ResponseEntity.status(HttpStatus.CREATED).body(SessionResponse.from(session, baseUrl));
             }
             // existingRevealId not found — fall through and create fresh
@@ -199,5 +206,29 @@ public class RevealController {
         }
 
         return ResponseEntity.ok(state);
+    }
+
+    /**
+     * A changed revealTime must move the server release boundary immediately.
+     * Firestore is already updated; if the session is cached in Redis the
+     * scheduler reads the time from there, so sync it — and if the session was
+     * already promoted to the live window but the new time is beyond it,
+     * demote it back to waiting so the 30-min scheduler re-promotes on time.
+     */
+    private void syncRevealTimeBoundary(String sessionId, java.time.Instant newRevealTime) {
+        try {
+            redisRepository.updateSessionRevealTime(sessionId, newRevealTime);
+            boolean beyondLiveWindow = newRevealTime.isAfter(java.time.Instant.now().plusSeconds(1800));
+            if (beyondLiveWindow && sessionRegistry.getLiveSessions().contains(sessionId)) {
+                redisRepository.updateSessionStatus(sessionId, SessionStatus.WAITING);
+                sessionRegistry.unregister(sessionId);
+                sessionRegistry.register(sessionId);
+                log.info("Reveal time moved beyond live window; session {} demoted to waiting", sessionId);
+            }
+        } catch (Exception e) {
+            // Firestore already holds the new time; a Redis sync failure only
+            // matters for currently-live sessions and must not fail the update.
+            log.warn("Reveal-time boundary sync failed for {}: {}", sessionId, e.getMessage());
+        }
     }
 }
