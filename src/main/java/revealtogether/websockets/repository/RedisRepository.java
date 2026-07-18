@@ -364,6 +364,44 @@ public class RedisRepository {
         return "1".equals(value);
     }
 
+    // Opaque public link support (opaqueRevealLinksV1)
+
+    /** Cache: sha256(token) -> revealId. Keyed by hash so raw tokens never touch Redis. */
+    public void cachePublicToken(String tokenHash, String revealId) {
+        redis.opsForValue().set("pubtoken:" + tokenHash, revealId, sessionTtl);
+    }
+
+    public String getCachedPublicToken(String tokenHash) {
+        return redis.opsForValue().get("pubtoken:" + tokenHash);
+    }
+
+    public void evictPublicToken(String tokenHash) {
+        redis.delete("pubtoken:" + tokenHash);
+    }
+
+    /**
+     * Public-endpoint rate limit: sliding 60s counter per key (IP or
+     * IP+fingerprint). Generous limits so one NAT'd party never trips it.
+     */
+    public boolean isPublicLookupRateLimited(String key, int maxPerMinute) {
+        String counterKey = "pubrl:" + key;
+        Long count = redis.opsForValue().increment(counterKey);
+        if (count != null && count == 1) {
+            redis.expire(counterKey, Duration.ofSeconds(60));
+        }
+        return count != null && count > maxPerMinute;
+    }
+
+    /**
+     * Once-only guard for the reveal release. @Scheduled ticks share a thread
+     * pool, so a slow tick could overlap the next and double-fire the trigger;
+     * SETNX makes the transition idempotent across threads and restarts.
+     */
+    public boolean markRevealFired(String sessionId) {
+        Boolean first = redis.opsForValue().setIfAbsent("revealfired:" + sessionId, "1", sessionTtl);
+        return Boolean.TRUE.equals(first);
+    }
+
     // Rate limiting
 
     public boolean isRateLimited(String visitorId) {

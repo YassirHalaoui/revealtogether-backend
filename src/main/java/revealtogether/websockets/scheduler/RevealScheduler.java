@@ -28,6 +28,7 @@ public class RevealScheduler {
     private final FirebaseService firebaseService;
     private final SimpMessagingTemplate messagingTemplate;
     private final ActiveSessionRegistry sessionRegistry;
+    private final revealtogether.websockets.repository.RedisRepository redisRepository;
 
     public RevealScheduler(
             SessionService sessionService,
@@ -35,7 +36,8 @@ public class RevealScheduler {
             ChatService chatService,
             FirebaseService firebaseService,
             SimpMessagingTemplate messagingTemplate,
-            ActiveSessionRegistry sessionRegistry
+            ActiveSessionRegistry sessionRegistry,
+            revealtogether.websockets.repository.RedisRepository redisRepository
     ) {
         this.sessionService = sessionService;
         this.voteService = voteService;
@@ -43,6 +45,7 @@ public class RevealScheduler {
         this.firebaseService = firebaseService;
         this.messagingTemplate = messagingTemplate;
         this.sessionRegistry = sessionRegistry;
+        this.redisRepository = redisRepository;
     }
 
     @Scheduled(fixedRate = 1000)
@@ -82,23 +85,43 @@ public class RevealScheduler {
 
     private void triggerReveal(Session session) {
         String sessionId = session.sessionId();
+
+        // Idempotent transition: scheduled ticks share a pool, so guard
+        // against a slow tick overlapping the next one at zero.
+        if (!sessionRegistry.getLiveSessions().contains(sessionId)
+                || !redisTryMarkFired(sessionId)) {
+            return;
+        }
+
         log.info("Triggering reveal for session: {}", sessionId);
 
         // Get final data
         VoteCount finalVotes = voteService.getVotes(sessionId);
         var chatHistory = chatService.getAllMessages(sessionId);
 
-        // Save to Firebase
+        // Save results to Firestore FIRST (blocking) so the token-authorized
+        // public endpoint already serves the result when clients refetch on
+        // the ready frame. Ordering is the race-freedom guarantee.
         firebaseService.saveRevealResults(session, finalVotes, chatHistory);
 
-        // Broadcast reveal event
-        RevealEvent revealEvent = RevealEvent.of(session.gender(), finalVotes);
-        messagingTemplate.convertAndSend("/topic/votes/" + sessionId, revealEvent);
+        // Result-free release frame. The gender never rides a sessionId-keyed
+        // topic; clients refetch the public endpoint with their token.
+        messagingTemplate.convertAndSend("/topic/votes/" + sessionId, RevealEvent.ready(session.revealTime()));
 
         // Mark session as ended (this also unregisters from ActiveSessionRegistry)
         sessionService.endSession(sessionId);
 
-        log.info("Reveal completed for session {}: gender={}, votes={}",
-                sessionId, session.gender(), finalVotes);
+        log.info("Reveal completed for session {}: votes={}", sessionId, finalVotes);
+    }
+
+    private boolean redisTryMarkFired(String sessionId) {
+        try {
+            return redisRepository.markRevealFired(sessionId);
+        } catch (Exception e) {
+            // Redis hiccup at zero: fail open — a duplicate ready frame is
+            // harmless (idempotent refetch), a missed reveal is not.
+            log.warn("Reveal-fired guard unavailable for {}, proceeding: {}", sessionId, e.getMessage());
+            return true;
+        }
     }
 }

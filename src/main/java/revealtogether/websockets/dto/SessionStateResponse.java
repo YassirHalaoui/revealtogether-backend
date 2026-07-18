@@ -3,12 +3,19 @@ package revealtogether.websockets.dto;
 import revealtogether.websockets.domain.ChatMessage;
 import revealtogether.websockets.domain.SessionStatus;
 import revealtogether.websockets.domain.VoteCount;
-import revealtogether.websockets.domain.VoteOption;
 import revealtogether.websockets.domain.VoteRecord;
 
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * Session state for reconnection flows, addressed by sessionId.
+ *
+ * NEVER carries the gender — sessionId-addressed responses must not expose
+ * the result, or a client retaining a sessionId from an old/rotated link
+ * would bypass public-token revocation. The result is served exclusively by
+ * the token-authorized GET /api/public/reveals/{publicToken}.
+ */
 public record SessionStateResponse(
         String sessionId,
         SessionStatus status,
@@ -16,8 +23,7 @@ public record SessionStateResponse(
         VoteCount votes,
         List<VoteRecord> recentVotes,
         List<ChatMessage> recentMessages,
-        boolean hasVoted,
-        VoteOption revealedGender
+        boolean hasVoted
 ) {
     public static SessionStateResponse live(
             String sessionId,
@@ -28,7 +34,7 @@ public record SessionStateResponse(
             List<ChatMessage> messages,
             boolean hasVoted
     ) {
-        return new SessionStateResponse(sessionId, status, revealTime, votes, recentVotes, messages, hasVoted, null);
+        return new SessionStateResponse(sessionId, status, revealTime, votes, recentVotes, messages, hasVoted);
     }
 
     public static SessionStateResponse ended(
@@ -36,11 +42,10 @@ public record SessionStateResponse(
             Instant revealTime,
             VoteCount votes,
             List<VoteRecord> recentVotes,
-            List<ChatMessage> messages,
-            VoteOption gender
+            List<ChatMessage> messages
     ) {
         return new SessionStateResponse(
-                sessionId, SessionStatus.ENDED, revealTime, votes, recentVotes, messages, true, gender
+                sessionId, SessionStatus.ENDED, revealTime, votes, recentVotes, messages, true
         );
     }
 }

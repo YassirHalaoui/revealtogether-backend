@@ -246,7 +246,9 @@ class RevealControllerTest extends BaseIntegrationTest {
                     .expectBody(SessionStateResponse.class)
                     .value(response -> {
                         assertThat(response.status().getValue()).isEqualTo("ended");
-                        assertThat(response.revealedGender().getValue()).isEqualTo("boy");
+                        // Gender is NEVER exposed on sessionId-addressed state
+                        // (opaqueRevealLinksV1) — only the token-authorized
+                        // public endpoint returns it.
                     });
         }
     }

@@ -152,8 +152,7 @@ public class SessionService {
                     session.revealTime(),
                     votes,
                     recentVotes,
-                    messages,
-                    session.gender()
+                    messages
             );
         }
 

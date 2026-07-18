@@ -213,7 +213,6 @@ class SessionServiceTest extends BaseIntegrationTest {
             assertThat(state.status()).isEqualTo(SessionStatus.LIVE);
             assertThat(state.votes().total()).isGreaterThanOrEqualTo(0); // May be rate limited
             assertThat(state.hasVoted()).isFalse();
-            assertThat(state.revealedGender()).isNull();
         }
 
         @Test
@@ -260,7 +259,7 @@ class SessionServiceTest extends BaseIntegrationTest {
             // Then
             assertThat(state).isNotNull();
             assertThat(state.status()).isEqualTo(SessionStatus.ENDED);
-            assertThat(state.revealedGender()).isEqualTo(VoteOption.BOY);
+            // revealedGender removed from sessionId-addressed responses (opaqueRevealLinksV1)
         }
 
         @Test

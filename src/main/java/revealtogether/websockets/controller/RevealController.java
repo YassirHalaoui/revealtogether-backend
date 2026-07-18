@@ -99,14 +99,14 @@ public class RevealController {
                 }
                 // Update pending reveal — preserve original createdAt by not re-saving session object
                 Session session = sessionService.createSessionWithId(request, request.existingRevealId());
-                firebaseService.updateSession(session, request.theme(), request.paymentStatus());
+                firebaseService.updateSession(session, request.theme(), request.paymentStatus(), request.message(), request.locale());
                 return ResponseEntity.status(HttpStatus.CREATED).body(SessionResponse.from(session, baseUrl));
             }
             // existingRevealId not found — fall through and create fresh
         }
 
         Session session = sessionService.createSession(request);
-        firebaseService.saveSession(session, request.theme(), request.paymentStatus());
+        firebaseService.saveSession(session, request.theme(), request.paymentStatus(), request.message(), request.locale());
 
         SessionResponse response = SessionResponse.from(session, baseUrl);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
@@ -121,10 +121,19 @@ public class RevealController {
             return ResponseEntity.ok(SessionResponse.from(session, baseUrl));
         }
 
-        // If not in Redis, check Firebase for ended session
+        // If not in Redis, check Firebase. ALLOWLISTED: this endpoint is
+        // sessionId-addressed, so the raw doc (gender, tokens, results) must
+        // never be returned from it.
         Map<String, Object> firebaseData = firebaseService.getRevealData(sessionId);
         if (firebaseData != null) {
-            return ResponseEntity.ok(firebaseData);
+            Map<String, Object> safe = new java.util.HashMap<>();
+            safe.put("sessionId", sessionId);
+            safe.put("status", firebaseData.get("status"));
+            safe.put("revealTime", firebaseData.get("revealTime"));
+            safe.put("motherName", firebaseData.get("motherName"));
+            safe.put("fatherName", firebaseData.get("fatherName"));
+            safe.put("theme", firebaseData.get("theme"));
+            return ResponseEntity.ok(safe);
         }
 
         return ResponseEntity.notFound().build();

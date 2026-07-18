@@ -5,6 +5,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 import java.time.Instant;
 
@@ -34,13 +35,19 @@ public record SessionCreateRequest(
         String tier,
 
         @Min(value = 1, message = "Seat limit must be at least 1")
-        Integer seatLimit
+        Integer seatLimit,
+
+        @Size(max = 500, message = "Message must be 500 characters or less")
+        String message,
+
+        @Pattern(regexp = "^(en|fr|es)$", message = "Locale must be en, fr or es")
+        String locale
 ) {
     /** Legacy 8-arg constructor: requests without tier info (= uncapped, rule 3). */
     public SessionCreateRequest(String ownerId, String gender, Instant revealTime,
                                 String motherName, String fatherName, String theme,
                                 String paymentStatus, String existingRevealId) {
         this(ownerId, gender, revealTime, motherName, fatherName, theme,
-                paymentStatus, existingRevealId, null, null);
+                paymentStatus, existingRevealId, null, null, null, null);
     }
 }

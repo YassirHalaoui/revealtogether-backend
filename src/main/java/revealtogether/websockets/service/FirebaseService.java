@@ -38,6 +38,11 @@ public class FirebaseService {
     }
 
     public void saveSession(Session session, String theme, String paymentStatus) {
+        saveSession(session, theme, paymentStatus, null, null);
+    }
+
+    public void saveSession(Session session, String theme, String paymentStatus,
+                            String message, String locale) {
         if (firestore == null) {
             log.warn("Firebase not configured. Skipping session save.");
             return;
@@ -55,6 +60,8 @@ public class FirebaseService {
         if (session.tier() != null) data.put("tier", session.tier());
         if (session.seatLimit() != null) data.put("seatLimit", session.seatLimit());
         if (theme != null) data.put("theme", theme);
+        if (message != null && !message.isBlank()) data.put("message", message);
+        if (locale != null && !locale.isBlank()) data.put("locale", locale);
         data.put("paymentStatus", paymentStatus != null ? paymentStatus : "pending");
 
         try {
@@ -74,6 +81,11 @@ public class FirebaseService {
      * Used when existingRevealId is provided in POST /api/reveals.
      */
     public void updateSession(Session session, String theme, String paymentStatus) {
+        updateSession(session, theme, paymentStatus, null, null);
+    }
+
+    public void updateSession(Session session, String theme, String paymentStatus,
+                              String message, String locale) {
         if (firestore == null) {
             log.warn("Firebase not configured. Skipping session update.");
             return;
@@ -91,6 +103,8 @@ public class FirebaseService {
         if (session.tier() != null) data.put("tier", session.tier());
         if (session.seatLimit() != null) data.put("seatLimit", session.seatLimit());
         if (theme != null) data.put("theme", theme);
+        if (message != null && !message.isBlank()) data.put("message", message);
+        if (locale != null && !locale.isBlank()) data.put("locale", locale);
         data.put("paymentStatus", paymentStatus != null ? paymentStatus : "pending");
 
         try {
@@ -559,6 +573,55 @@ public class FirebaseService {
             log.error("Failed to fetch seat records from Firestore for session {}", sessionId, e);
             Thread.currentThread().interrupt();
             return List.of();
+        }
+    }
+
+    /**
+     * Persists an opaque public link onto the reveal doc. Single-doc update =
+     * atomic: token, hash and version flip together. Raw token is stored
+     * (owner/server-readable only once Firestore rules are locked) so the
+     * dashboard can re-display the link; hash is the indexed lookup key.
+     */
+    public void savePublicLink(String revealId, String token, String tokenHash, int version, boolean rotated) {
+        if (firestore == null) {
+            log.warn("Firebase not configured. Cannot save public link.");
+            return;
+        }
+        Map<String, Object> data = new HashMap<>();
+        data.put("publicToken", token);
+        data.put("publicTokenHash", tokenHash);
+        data.put("tokenVersion", version);
+        if (rotated) {
+            data.put("tokenRotatedAt", Instant.now().toString());
+        }
+        try {
+            firestore.collection(REVEALS_COLLECTION)
+                    .document(revealId)
+                    .set(data, SetOptions.merge())
+                    .get();
+        } catch (InterruptedException | ExecutionException e) {
+            log.error("Failed to save public link for reveal {}", revealId, e);
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** Exact-match lookup by token hash. Returns null when nothing matches (non-enumerating). */
+    public String findRevealIdByTokenHash(String tokenHash) {
+        if (firestore == null) {
+            return null;
+        }
+        try {
+            var docs = firestore.collection(REVEALS_COLLECTION)
+                    .whereEqualTo("publicTokenHash", tokenHash)
+                    .limit(1)
+                    .get()
+                    .get()
+                    .getDocuments();
+            return docs.isEmpty() ? null : docs.get(0).getId();
+        } catch (InterruptedException | ExecutionException e) {
+            log.error("Failed public token lookup", e);
+            Thread.currentThread().interrupt();
+            return null;
         }
     }
 

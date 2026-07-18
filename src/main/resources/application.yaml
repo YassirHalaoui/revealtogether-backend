@@ -43,6 +43,10 @@ app:
     watch-window-minutes: 45
   # Shared secret for Vercel -> Spring server-to-server calls (refresh-tier).
   internal-secret: ${INTERNAL_API_SECRET:}
+  # Opaque public reveal links (opaqueRevealLinksV1). Generous per-IP limit so
+  # a NAT'd party never trips it; per-IP+token gets half of it.
+  public-links:
+    lookups-per-ip-per-minute: 120
   chat:
     max-messages: 500
     max-length: 280
