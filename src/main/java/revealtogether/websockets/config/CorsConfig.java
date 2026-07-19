@@ -28,9 +28,17 @@ public class CorsConfig implements WebMvcConfigurer {
         log.info("REST CORS allowed origins: {}", allowedOrigins);
     }
 
+    /** Localhost dev origins always allowed, merged with the env-configured list
+     *  (ALLOWED_ORIGINS overrides the yaml default, so code is the only place
+     *  that can guarantee local dev ports work against prod). */
+    static final List<String> DEV_ORIGINS = List.of(
+            "http://localhost:3000", "http://localhost:3001");
+
     private String[] getOrigins() {
-        return Arrays.stream(allowedOrigins.split(","))
-                .map(String::trim)
+        return java.util.stream.Stream.concat(
+                        Arrays.stream(allowedOrigins.split(",")).map(String::trim).filter(s -> !s.isBlank()),
+                        DEV_ORIGINS.stream())
+                .distinct()
                 .toArray(String[]::new);
     }
 

@@ -34,9 +34,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // Trim whitespace from each origin
-        String[] origins = Arrays.stream(allowedOrigins.split(","))
-                .map(String::trim)
+        // Env-configured origins + always-on localhost dev origins (the
+        // ALLOWED_ORIGINS env var overrides yaml, so dev ports live in code).
+        String[] origins = java.util.stream.Stream.concat(
+                        Arrays.stream(allowedOrigins.split(",")).map(String::trim).filter(s -> !s.isBlank()),
+                        CorsConfig.DEV_ORIGINS.stream())
+                .distinct()
                 .toArray(String[]::new);
 
         log.info("Registering WebSocket endpoint /ws with origins: {}", Arrays.toString(origins));
