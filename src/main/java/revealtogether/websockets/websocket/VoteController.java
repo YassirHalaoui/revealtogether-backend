@@ -21,15 +21,18 @@ public class VoteController {
     private final VoteService voteService;
     private final SimpMessagingTemplate messagingTemplate;
     private final ActiveSessionRegistry sessionRegistry;
+    private final revealtogether.websockets.realtime.RevealEventPublisher eventPublisher;
 
     public VoteController(
             VoteService voteService,
             SimpMessagingTemplate messagingTemplate,
-            ActiveSessionRegistry sessionRegistry
+            ActiveSessionRegistry sessionRegistry,
+            revealtogether.websockets.realtime.RevealEventPublisher eventPublisher
     ) {
         this.voteService = voteService;
         this.messagingTemplate = messagingTemplate;
         this.sessionRegistry = sessionRegistry;
+        this.eventPublisher = eventPublisher;
     }
 
     @MessageMapping("/vote/{sessionId}")
@@ -53,6 +56,16 @@ public class VoteController {
             messagingTemplate.convertAndSend("/topic/vote-events/" + sessionId, event);
             log.debug("Broadcast vote event: session={}, name={}, option={}",
                     sessionId, request.name(), request.option());
+
+            // WP4 dual-publish: enveloped frame alongside the legacy topic.
+            var counts = voteService.getVotes(sessionId);
+            eventPublisher.publish(
+                    revealtogether.websockets.realtime.EventEnvelope.VOTE_CAST, sessionId, 0L,
+                    java.util.Map.of(
+                            "participantId", request.visitorId(),
+                            "displayName", request.name(),
+                            "choice", request.option().toUpperCase(),
+                            "totals", java.util.Map.of("BOY", counts.boy(), "GIRL", counts.girl())));
 
             // VoteBroadcastScheduler skips non-live sessions; broadcast directly so counts update before the 30-min window.
             if (!sessionRegistry.getLiveSessions().contains(sessionId)) {

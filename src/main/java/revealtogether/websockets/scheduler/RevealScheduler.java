@@ -29,6 +29,7 @@ public class RevealScheduler {
     private final SimpMessagingTemplate messagingTemplate;
     private final ActiveSessionRegistry sessionRegistry;
     private final revealtogether.websockets.repository.RedisRepository redisRepository;
+    private final revealtogether.websockets.realtime.RevealEventPublisher eventPublisher;
 
     public RevealScheduler(
             SessionService sessionService,
@@ -37,7 +38,8 @@ public class RevealScheduler {
             FirebaseService firebaseService,
             SimpMessagingTemplate messagingTemplate,
             ActiveSessionRegistry sessionRegistry,
-            revealtogether.websockets.repository.RedisRepository redisRepository
+            revealtogether.websockets.repository.RedisRepository redisRepository,
+            revealtogether.websockets.realtime.RevealEventPublisher eventPublisher
     ) {
         this.sessionService = sessionService;
         this.voteService = voteService;
@@ -46,6 +48,7 @@ public class RevealScheduler {
         this.messagingTemplate = messagingTemplate;
         this.sessionRegistry = sessionRegistry;
         this.redisRepository = redisRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     @Scheduled(fixedRate = 1000)

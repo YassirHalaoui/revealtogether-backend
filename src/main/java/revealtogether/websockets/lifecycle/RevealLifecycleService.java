@@ -33,9 +33,12 @@ public class RevealLifecycleService {
     private static final String EVENTS = "events";
 
     private final Firestore firestore;
+    private final revealtogether.websockets.realtime.RevealEventPublisher eventPublisher;
 
-    public RevealLifecycleService(@Nullable Firestore firestore) {
+    public RevealLifecycleService(@Nullable Firestore firestore,
+                                  revealtogether.websockets.realtime.RevealEventPublisher eventPublisher) {
         this.firestore = firestore;
+        this.eventPublisher = eventPublisher;
     }
 
     public sealed interface Outcome permits Applied, Refused {}
@@ -54,7 +57,7 @@ public class RevealLifecycleService {
         }
 
         try {
-            return firestore.runTransaction(tx -> {
+            Outcome outcome = firestore.runTransaction(tx -> {
                 var ref = firestore.collection(REVEALS).document(revealId);
                 DocumentSnapshot snap = tx.get(ref).get();
                 if (!snap.exists()) {
@@ -111,6 +114,16 @@ public class RevealLifecycleService {
                 log.info("Lifecycle {}: {} -> {} (v{} seq{})", revealId, from, to, newVersion, seq);
                 return new Applied(from, to, newVersion, seq);
             }).get();
+
+            // Published only after the transaction commits: a retried
+            // transaction must never emit a frame for a state that never landed.
+            if (outcome instanceof Applied applied) {
+                eventPublisher.publish(revealtogether.websockets.realtime.EventEnvelope.of(
+                        eventTypeFor(applied.to()), revealId, applied.seq(), applied.version(),
+                        Map.of("fromState", applied.from().name(), "toState", applied.to().name(),
+                               "command", command.name())));
+            }
+            return outcome;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return new Refused("reveal_unavailable", "Interrupted", null);

@@ -52,6 +52,10 @@ app:
   command:
     idempotency-enabled: ${COMMAND_IDEMPOTENCY_ENABLED:true}
     idempotency-ttl-hours: 48
+  # WP4 enveloped stream on /topic/reveal/{id}. Dual-published alongside the
+  # legacy topics; kill switch for coexistence.
+  realtime:
+    envelope-enabled: ${REALTIME_ENVELOPE_ENABLED:true}
   chat:
     max-messages: 500
     max-length: 280

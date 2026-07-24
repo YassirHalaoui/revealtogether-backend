@@ -20,6 +20,7 @@ public record PublicRevealState(
         Instant serverNow,
         Instant revealAt,
         String sessionId,
+        Long snapshotVersion,
         Boolean paymentPending,
         Display display,
         Participation participation,
@@ -84,8 +85,10 @@ public record PublicRevealState(
             }
         }
 
-        return new PublicRevealState(status, serverNow, revealAt, sessionId, paymentPending,
-                display, participation, result);
+        // WP4: the seq a client should discard events at or below.
+        Long snapshotVersion = doc.get("seq") instanceof Number n ? n.longValue() : 0L;
+        return new PublicRevealState(status, serverNow, revealAt, sessionId, snapshotVersion,
+                paymentPending, display, participation, result);
     }
 
     private static String str(Object value) {

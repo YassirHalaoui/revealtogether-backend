@@ -107,6 +107,36 @@ public class SeatController {
         return ResponseEntity.ok(body);
     }
 
+    /**
+     * WP4 — host control-room snapshot. Owner-only: guests use the
+     * token-authorised /api/public/reveals/{token}, which stays the sole guest
+     * path to the outcome so rotation and revocation keep their meaning.
+     */
+    @GetMapping("/reveals/{sessionId}/snapshot")
+    public ResponseEntity<?> snapshot(
+            @PathVariable String sessionId,
+            @RequestHeader(value = "Authorization", required = false) String authHeader
+    ) {
+        String uid = verifyIdToken(authHeader);
+        if (uid == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("code", "UNAUTHORIZED"));
+        }
+        Map<String, Object> doc = firebaseService.getRevealData(sessionId);
+        if (doc == null) {
+            return ResponseEntity.notFound().build();
+        }
+        if (!uid.equals(doc.get("ownerId")) && !uid.equals(doc.get("createdBy"))) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        JoinResponse stats = seatService.stats(sessionId);
+        long joined = stats != null ? stats.joined() : 0;
+        return ResponseEntity.ok()
+                .cacheControl(org.springframework.http.CacheControl.noStore().cachePrivate())
+                .body(revealtogether.websockets.dto.HostSnapshot.from(
+                        sessionId, doc, joined, java.time.Instant.now()));
+    }
+
     @PostMapping("/admin/sessions/{sessionId}/refresh-tier")
     public ResponseEntity<?> refreshTier(
             @PathVariable String sessionId,
