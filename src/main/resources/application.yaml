@@ -47,6 +47,11 @@ app:
   # a NAT'd party never trips it; per-IP+token gets half of it.
   public-links:
     lookups-per-ip-per-minute: 120
+  # WP2 command envelope. Idempotency only engages when a client sends
+  # Idempotency-Key, so this is a no-op for current clients.
+  command:
+    idempotency-enabled: ${COMMAND_IDEMPOTENCY_ENABLED:true}
+    idempotency-ttl-hours: 48
   chat:
     max-messages: 500
     max-length: 280
@@ -72,4 +77,4 @@ logging:
     root: ${LOG_LEVEL:INFO}
     revealtogether: DEBUG
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} [%X{traceId:-}] - %msg%n"

@@ -1,0 +1,23 @@
+# gitleaks config — WP0 secret containment.
+# Extends the default ruleset and adds a rule for the exact failure mode that
+# bit us: Google service-account JSON committed to a repo.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "gcp-service-account-json"
+description = "Google service account private key (JSON)"
+regex = '''"type"\s*:\s*"service_account"'''
+tags = ["gcp", "credentials"]
+
+[[rules]]
+id = "private-key-block"
+description = "PEM private key block"
+regex = '''-----BEGIN (RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----'''
+tags = ["key"]
+
+[allowlist]
+description = "Build output and dependencies"
+paths = [
+  '''target/''',
+]
